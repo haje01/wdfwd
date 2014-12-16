@@ -34,7 +34,7 @@ copy wdfwd\default_config.yaml my_config.yaml
 Open and edit it as your need, then set it as active config.
 
 <pre>
-set WDFWD_CFG=Your-wdfwd-home\my_config.yaml  # set real config
+set WDFWD_CFG=$WDFWD_DIR\my_config.yaml  # set real config
 </pre>
 
 To activate your config file **for service, you need to set WDFWD_CFG as system environment variable** in Windows control panel.
@@ -126,7 +126,7 @@ tasks:
 
 ## Build & Install as Windows Service
 <pre>
-cd Your-wdfwd-home\wdfwd\
+cd $WDFWD_DIR\wdfwd\
 python setup.py py2exe
 dist\wdfwd_svc.exe --startup auto install
 </pre>
