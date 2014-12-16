@@ -16,7 +16,7 @@ After you clone the source, declare two environmet variables:
 <pre>
 WDFWD_DIR=YOUR-WDFWD-FOLDER
 WDFWD_DEST=LOG-SYNC-TARGET-SERVER
-<pre>
+</pre>
 
 Run test like this:
 <pre>
