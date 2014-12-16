@@ -11,10 +11,17 @@ Folowing modules are essential for building and testing.
 
 
 ## Test
+After you clone the source, declare two environmet variables:
+
 <pre>
-set WDFWD_CFG=Your-wdfwd-home\wdfwd\tests\test_config.yaml  # set test config
-cd Your-wdfwd-home
-py.test
+WDFWD_DIR=YOUR-WDFWD-FOLDER
+WDFWD_DEST=LOG-SYNC-TARGET-SERVER
+<pre>
+
+Run test like this:
+<pre>
+cd $WDFWD_DIR
+WDFWD_CFG=$WDFWD_DIR\wdfwd\tests\test_config.yaml py.test
 </pre>
 
 
@@ -93,7 +100,7 @@ tasks:
                 driver: "{SQL Server}"
                 server: .\SQLEXPRESS
                 port:
-                database: C9
+                database: MyApp
                 trustcon: true
                 uid:
                 passwd:
@@ -105,7 +112,6 @@ tasks:
                     - BIP.TblItemEnfcStat_
                     - LogOpr.TblHackLogOpr_
                     - LogOpr.TblLogOpr_
-                    - LogOpr.TblMissionPlayLogOpr_
                 date_pattern: ".*_(\\d{8})"
                 date_format: "%Y%m%d"
                 skip_last: true
