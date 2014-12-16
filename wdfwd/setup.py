@@ -1,8 +1,14 @@
+import os
+
 from distutils.core import setup
-import py2exe
+import py2exe  # NOQA
 
 import sys
-sys.path.append('E:\\works\\wdfwd')
+
+assert 'WDFWD_DIR' in os.environ
+WDFWD_DIR = os.environ['WDFWD_DIR']
+
+sys.path.append(WDFWD_DIR)
 
 
 includes = ['wdfwd.get_config', 'wdfwd.const', 'decimal', 'pyodbc']
@@ -27,4 +33,5 @@ setup(service=[target],
       options={'py2exe': {
                'includes': includes,
                }},
-      data_files=[('files', ['E:\\works\\wdfwd\\wdfwd\\default_config.yml'])])
+      data_files=[('files', [os.path.join(WDFWD_DIR,
+                                          'wdfwd\\default_config.yml')])])
