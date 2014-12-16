@@ -1,0 +1,13 @@
+PyYAML==3.11
+wsgiref==0.1.2
+WMI==1.4.9
+pytest==2.5.2
+Flask==0.9
+Jinja2==2.6
+Werkzeug==0.8.3
+croniter==0.3.4
+py2exe==0.6.9
+pyodbc==3.0.7
+pyparsing==1.5.6
+pytest==2.5.2
+pywin32==218

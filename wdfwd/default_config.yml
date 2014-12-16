@@ -1,0 +1,79 @@
+app:
+    debug: false
+    service:
+        # NOTE: Your service name
+        name: WDFwd
+        caption: WzDat Log / DB Forwarder
+        # NOTE: Cron style schedule: m h dom mon dow
+        schedule: "0 4 * * *"
+        force_first_run: false
+    rsync_path: # RSYNC-EXE-FILE-PATH
+
+log:
+    version: 1
+    formatters:
+        simpleFormatter:
+            format: '%(asctime)s [%(levelname)s] - %(message)s'
+            datefmt: '%Y/%m/%d %H:%M:%S'
+    handlers:
+        file:
+            class: logging.handlers.RotatingFileHandler
+            formatter: simpleFormatter
+            level: DEBUG
+            # NOTE: Log file shall be located within dump folder
+            filename: # LOG-FILE-PATH ex) C:\wdfwd-tmp\_wdfwd_log.txt
+            maxBytes: 10485760
+            backupCount: 10
+    root:
+        level: DEBUG
+        handlers: [file]
+    to_url: # RSYNC-SERVER-URL-FOR-LOG ex) rsync-user@myserver.net::rsync-backup/myprj
+
+tasks:
+    # Plain folder sync
+    - sync_folder:
+        folder: # TARGET-FOLDER-PATH ex) C:\MyApp\slog
+        to_url: # RSYNC-SERVER-URL-FOR-LOG ex) rsync-user@myserver.net::rsync-backup/myprj/mysvr/log
+
+    # (Recursive) file sync with filename pattern
+    - sync_files:
+        base_folder: # TARGET-FOLDER-PATH ex) C:\MyApp\\dump
+        filename_pattern: # TARGET-FILE-PATTERN ex) "*.dmp"
+        recurse: true
+        # rsync server url
+        to_url: # RSYNC-SERVER-URL-FOR-DUMP ex) rsync-user@myserver.net::rsync-backup/myprj/mysvr/dump
+ 
+    # Dump DB to CSVs, then sync them
+    - sync_db_dump:
+        # NOTE: Dump folder where DB dumped .csv files are located.
+        folder: # DUMP-TARGET-FOLDER-PATH ex) C:\wdfwd-tmp
+        field_delimiter: "|"
+        db:
+            # NOTE: Local DB connection info
+            connect:
+                driver: "{SQL Server}"
+                server: .\SQLEXPRESS
+                port:
+                database: C9
+                trustcon: true
+                uid:
+                passwd:
+            fetchsize: 1000
+            table:
+                # NOTE: Table names to be dumped.
+                names:
+                    - BIP.TblItemCreateDeleteRecord_
+                    - BIP.TblItemEnfcStat_
+                    - LogOpr.TblHackLogOpr_
+                    - LogOpr.TblLogOpr_
+                    - LogOpr.TblMissionPlayLogOpr_
+                date_pattern: ".*_(\\d{8})"
+                date_format: "%Y%m%d"
+                skip_last: true
+            sys_schema: false
+            type_encodings:
+                # specify encoding for a db type when conversion needed
+                # ex) - {type: 'varchar', encoding: 'cp949'}
+                # ex) - {type: 'varchar', func: 'lambda x: x.encode('utf8')}
+        # rsync server url
+        to_url: # RSYNC-SERVER-URL-FOR-DBLOG ex) rsync-user@myserver.net::rsync-backup/myprj/mysvr/dblog
