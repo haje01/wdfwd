@@ -1,3 +1,7 @@
+0.0.5.2
+=======
+- rsync bandwidth limit
+
 0.0.5.1
 =======
 - reduce retry 10 -> 5

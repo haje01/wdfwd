@@ -15,6 +15,14 @@ RSYNC_EXCLUDE = "--exclude='_wdfwd_*'"
 RSYNC_EXCLUDE2 = "--exclude=.gitignore"
 RSYNC_REMOVE = "--remove-source-files"
 RSYNC_OPTION = '-rltvzRP'
+# decide rsync bandwidth limit
+RSYNC_BWLIMIT = '--bwlimit=5120'  # default 5MByte/Sec
+if 'rsync_bwlimit' in acfg:
+    limit = int(acfg['rsync_bwlimit'])
+    if limit > 0:
+        RSYNC_BWLIMIT = '--bwlimit={}'.format(acfg['rsync_bwlimit'])
+    else:
+        RSYNC_BWLIMIT = ''
 
 
 def sync_file(abspath, to_url):
@@ -34,7 +42,8 @@ def sync_folder(folder, to_url, remove_src=False):
     os.environ['RSYNC_PASSWORD'] = RSYNC_PASSWD
     # sync dail tables
     with ChangeDir(folder):
-        cmd = [rsync_path, RSYNC_OPTION, RSYNC_EXCLUDE, RSYNC_EXCLUDE2]
+        cmd = [rsync_path, RSYNC_OPTION, RSYNC_EXCLUDE, RSYNC_EXCLUDE2,
+               RSYNC_BWLIMIT]
         if remove_src:
             cmd.append(RSYNC_REMOVE)
         cmd += ['.', to_url]
