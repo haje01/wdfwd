@@ -6,8 +6,10 @@ app:
         caption: WzDat Log / DB Forwarder
         # NOTE: Cron style schedule: m h dom mon dow
         schedule: "0 4 * * *"
-        force_first_run: false
+        force_first_run: true
     rsync_path: # RSYNC-EXE-FILE-PATH
+    # Limit rsync bandwidth in KB/Sec. 0 for no limit, skip for default
+    rsync_bwlimit: 5120  # 5 MByte/Sec, Default
 
 log:
     version: 1
@@ -21,7 +23,7 @@ log:
             formatter: simpleFormatter
             level: DEBUG
             # NOTE: Log file shall be located within dump folder
-            filename: # LOG-FILE-PATH ex) C:\wdfwd-tmp\_wdfwd_log.txt
+            filename: # LOG-FILE-PATH ex) C:\wdfwd-temp\_wdfwd_log.txt
             maxBytes: 10485760
             backupCount: 10
     root:
@@ -46,7 +48,7 @@ tasks:
     # Dump DB to CSVs, then sync them
     - sync_db_dump:
         # NOTE: Dump folder where DB dumped .csv files are located.
-        folder: # DUMP-TARGET-FOLDER-PATH ex) C:\wdfwd-tmp
+        folder: # DUMP-TARGET-FOLDER-PATH ex) C:\wdfwd-temp
         field_delimiter: "|"
         db:
             # NOTE: Local DB connection info
