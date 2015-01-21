@@ -5,7 +5,7 @@ import pytest
 
 from wdfwd.get_config import get_config
 from wdfwd.util import cap_call, _cap_call
-from wdfwd.sync import sync_folder, find_file_by_ptrn, sync_files
+from wdfwd.sync import sync_folder, find_file_by_ptrn, sync_files, sync_file
 
 
 cfg = get_config()
@@ -34,7 +34,7 @@ def test_rsync(capsys):
     assert "rsync.exe~" in outerr[0]
 
 
-def test_folder_sync():
+def test_sync_folder():
     for task in tcfg:
         cmd = task.keys()[0]
         if cmd == 'sync_folder':
@@ -44,7 +44,7 @@ def test_folder_sync():
             sync_folder(folder, to_url)
 
 
-def test_pattern_sync():
+def test_sync_pattern():
     for task in tcfg:
         cmd = task.keys()[0]
         if cmd == 'sync_files':
@@ -55,3 +55,14 @@ def test_pattern_sync():
             ptrn = sync['filename_pattern']
             files = find_file_by_ptrn(bfolder, ptrn, recurse)
             sync_files(bfolder, files, to_url)
+
+
+def test_sync_single_file():
+    for task in tcfg:
+        cmd = task.keys()[0]
+        if cmd == 'sync_file':
+            sync = task['sync_file']
+            path = sync['filepath']
+            to_url = sync['to_url']
+            sync_file(path, to_url)
+

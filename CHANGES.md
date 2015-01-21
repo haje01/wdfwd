@@ -1,3 +1,8 @@
+0.0.5.3
+=======
+- ensure sync url ends with dir seperator
+- add test for sync single file
+
 0.0.5.2
 =======
 - rsync bandwidth limit

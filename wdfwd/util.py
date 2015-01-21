@@ -94,3 +94,7 @@ def remove_file(fpath):
             os.unlink(fpath)
     except OSError:
         logging.error("Failed: _remove_file " + fpath)
+
+
+def ensure_endsep(path):
+    return path if path.endswith('/') else path + '/'

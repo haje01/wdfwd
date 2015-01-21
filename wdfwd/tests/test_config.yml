@@ -32,6 +32,7 @@ log:
     root:
         level: DEBUG
         handlers: [console, file]
+    to_url: $WDFWD_DEST/test  # URL for log file sync
 
 test:
     force_today: '20140309'
@@ -48,6 +49,11 @@ tasks:
         filename_pattern: "*.dmp"
         recurse: true
         to_url: $WDFWD_DEST/test/sdump
+
+    # Sync signel file
+    - sync_file:
+        filepath: $WDFWD_DIR\wdfwd\tests\dump\_wdfwd_log.txt
+        to_url: $WDFWD_DEST/test
 
     # Dump DB to CSVs, then sync them
     - sync_db_dump:

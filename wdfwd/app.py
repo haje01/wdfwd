@@ -91,6 +91,13 @@ def _sync_files(scfg):
     sync_files(bfolder, files, to_url)
 
 
+def _sync_file(scfg):
+    path = scfg['filepath']
+    to_url = scfg['to_url']
+    logging.debug("Sync single file", path, to_url)
+    sync_file(path, to_url)
+
+
 def _run_tasks(tasks):
     logging.debug('_run_tasks')
     for task in tasks:
@@ -103,6 +110,9 @@ def _run_tasks(tasks):
         elif cmd == 'sync_files':
             scfg = task['sync_files']
             _sync_files(scfg)
+        elif cmd == 'sync_file':
+            scfg = task['sync_file']
+            _sync_file(scfg)
         elif cmd == 'sync_db_dump':
             scfg = task['sync_db_dump']
             if 'db' in scfg:

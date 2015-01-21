@@ -4,7 +4,7 @@ import fnmatch
 import logging
 
 from wdfwd.get_config import get_config
-from wdfwd.util import cap_call, ChangeDir
+from wdfwd.util import cap_call, ChangeDir, ensure_endsep
 from wdfwd.const import RSYNC_PASSWD
 
 
@@ -14,7 +14,7 @@ rsync_path = acfg['rsync_path']
 RSYNC_EXCLUDE = "--exclude='_wdfwd_*'"
 RSYNC_EXCLUDE2 = "--exclude=.gitignore"
 RSYNC_REMOVE = "--remove-source-files"
-RSYNC_OPTION = '-rltvzRP'
+RSYNC_OPTION = '-azvRP'
 # decide rsync bandwidth limit
 RSYNC_BWLIMIT = '--bwlimit=5120'  # default 5MByte/Sec
 if 'rsync_bwlimit' in acfg:
@@ -26,17 +26,19 @@ if 'rsync_bwlimit' in acfg:
 
 
 def sync_file(abspath, to_url):
+    to_url = ensure_endsep(to_url)
     st = time.time()
     logging.debug('sync_file: %s to %s' % (abspath, to_url))
     os.environ['RSYNC_PASSWORD'] = RSYNC_PASSWD
     dirn = os.path.dirname(abspath)
     fname = os.path.basename(abspath)
     with ChangeDir(dirn):
-        cap_call([rsync_path, RSYNC_OPTION, fname, to_url])
+        cap_call([rsync_path, RSYNC_OPTION, RSYNC_BWLIMIT, fname, to_url])
     logging.debug('sync elapsed {}'.format(time.time() - st))
 
 
 def sync_folder(folder, to_url, remove_src=False):
+    to_url = ensure_endsep(to_url)
     st = time.time()
     logging.debug('sync_folder')
     os.environ['RSYNC_PASSWORD'] = RSYNC_PASSWD
@@ -53,13 +55,15 @@ def sync_folder(folder, to_url, remove_src=False):
 
 
 def sync_files(folder, files, to_url):
+    to_url = ensure_endsep(to_url)
     st = time.time()
     logging.debug('sync_files')
     os.environ['RSYNC_PASSWORD'] = RSYNC_PASSWD
     with ChangeDir(folder):
         for _file in files:
             logging.debug(_file)
-            cap_call([rsync_path, RSYNC_OPTION, _file, to_url], 2)
+            cap_call([rsync_path, RSYNC_OPTION, RSYNC_BWLIMIT, _file, to_url],
+                     2)
     logging.debug('sync elapsed {}'.format(time.time() - st))
 
 
