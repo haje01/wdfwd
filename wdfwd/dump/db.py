@@ -18,7 +18,9 @@ cfg = get_config()
 
 
 def enc_op(x):
-    return x.encode('utf8')
+    if x is not None:
+        return x.encode('utf8')
+    return ''
 
 
 def _write_table_header(f, con, delim, tbinfo):

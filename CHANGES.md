@@ -1,7 +1,12 @@
+0.0.5.4
+=======
+- test null string column for dbsync
+
 0.0.5.3
 =======
 - ensure sync url ends with dir seperator
 - add test for sync single file
+- remove 'P' flag for rsync
 
 0.0.5.2
 =======

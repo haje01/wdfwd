@@ -18,9 +18,9 @@ class Target:
 
     def __init__(self, **kw):
         self.__dict__.update(kw)
-        self.version = "0.0.5.3"
+        self.version = "0.0.5.4"
         self.company_name = "Webzen"
-        self.copyright = "Copyright (C) 2014 Webzen"
+        self.copyright = "Copyright (C) 2015 Webzen"
         self.name = "WzDat Forwarder"
 
 target = Target(

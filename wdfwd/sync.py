@@ -14,7 +14,7 @@ rsync_path = acfg['rsync_path']
 RSYNC_EXCLUDE = "--exclude='_wdfwd_*'"
 RSYNC_EXCLUDE2 = "--exclude=.gitignore"
 RSYNC_REMOVE = "--remove-source-files"
-RSYNC_OPTION = '-azvRP'
+RSYNC_OPTION = '-azvR'
 # decide rsync bandwidth limit
 RSYNC_BWLIMIT = '--bwlimit=5120'  # default 5MByte/Sec
 if 'rsync_bwlimit' in acfg:
