@@ -165,6 +165,7 @@ class Connector(object):
             self.server = '%s,%d' % (self.server, port)
         self.database = dbcc['database']
         self.trustcon = dbcc['trustcon']
+        self.read_uncommit = dbcc['read_uncommit']
         self.uid = dbcc['uid']
         self.passwd = dbcc['passwd']
         self.fetchsize = dbc['fetchsize']
@@ -192,6 +193,14 @@ class Connector(object):
         else:
             self.conn = conn
             self.cursor = conn.cursor()
+            if self.read_uncommit:
+                logging.debug("set read uncommited")
+                opt = conn.getinfo(pyodbc.SQL_TXN_ISOLATION_OPTION)
+                logging.debug("old isolation option: {}".format(opt))
+                cmd = "SET TRANSACTION ISOLATION LEVEL READ COMMITTED"
+                execute(self.conn, cmd)
+                opt = conn.getinfo(pyodbc.SQL_TXN_ISOLATION_OPTION)
+                logging.debug("new isolation option: {}".format(opt))
         return self
 
     def __exit__(self, _type, value, tb):

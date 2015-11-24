@@ -1,3 +1,7 @@
+0.0.5.5
+=======
+- new option for 'READ UNCOMMITTED'
+
 0.0.5.4
 =======
 - test null string column for dbsync

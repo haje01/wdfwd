@@ -58,6 +58,7 @@ tasks:
                 port:
                 database: C9
                 trustcon: true
+                read_uncommit: true
                 uid:
                 passwd:
             fetchsize: 1000
