@@ -64,10 +64,11 @@ tasks:
             # NOTE: Local DB connection info
             connect:
                 driver: "{SQL Server}"
-                server: .\SQLEXPRESS
+                server: HAJE01-PC1
                 port:
-                database: C9
+                database: C9Test
                 trustcon: true
+                read_uncommit: true
                 uid:
                 passwd:
             fetchsize: 1000

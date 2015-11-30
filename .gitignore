@@ -15,8 +15,10 @@ pip-log.txt
 .tox
 
 test_env.bat
+test_env2.bat
 real_env.bat
 test_dist
+test_config2.yml
 _wdfwd_*
 _test_dummy_
 config.yml

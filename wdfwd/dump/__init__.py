@@ -21,12 +21,23 @@ def check_dump_db_and_sync(dcfg, max_fetch=None):
     dumped = []
     # check changed daily tables
     with db.Connector(dcfg) as con:
-        daily_tables = db.daily_tables_by_change(dcfg, con)
+        if con.no_daily_table:
+            _dump_table_dates_n_sync(db, dcfg, con, dumped, max_fetch)
+        else:
+            _dump_daily_table_n_sync(db, dcfg, con, dumped, max_fetch)
+    return dumped
+
+
+def _dump_table_dates_n_sync(db, dcfg, con, dumped, max_fetch):
+    raise NotImplementedError()
+
+
+def _dump_daily_table_n_sync(db, dcfg, con, dumped, max_fetch):
+    daily_tables = db.daily_tables_by_change(dcfg, con)
     # dump tables
     for tables in daily_tables:
         if len(tables) > 0:
             _sync_dump(dcfg, db, tables, dumped, max_fetch)
-    return dumped
 
 
 def _sync_dump(dcfg, db, tables, dumped, max_fetch):

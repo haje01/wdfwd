@@ -16,65 +16,104 @@ for task in cfg['tasks']:
         break
 
 
-def test_config():
+def test_dump_config():
     svc = acfg['service']
     assert svc['name'] == 'WDFwdTest'
 
 
-def test_by_names():
+def test_dump_by_names():
     with db.Connector(dcfg) as con:
         tables = db.tables_by_names(con, False)
-        assert tables == [u'TblHackLogOpr_20140308', u'TblHackLogOpr_20140309',
-                          u'TblLogOpr_20140308', u'TblLogOpr_20140309',
-                          u'TblMissionPlayLogOpr_20140308',
-                          u'TblMissionPlayLogOpr_20140309']
+        assert tables == \
+            [
+                u'TblHackLogOpr_20151122', u'TblHackLogOpr_20151123',
+                u'TblLogOpr_20151121', u'TblLogOpr_20151122', u'TblLogOpr_20151123',
+                u'TblMissionPlayLogOpr_20151122', u'TblMissionPlayLogOpr_20151123',
+                u'TblMissionPlayLogOpr_20151124',
+            ]
         tables = db.tables_by_names(con)
-        assert tables == [u'TblHackLogOpr_20140308', u'TblLogOpr_20140308',
-                          u'TblMissionPlayLogOpr_20140308']
+        assert tables == \
+            [
+                u'TblHackLogOpr_20151122',
+                u'TblLogOpr_20151121', u'TblLogOpr_20151122',
+                u'TblMissionPlayLogOpr_20151122', u'TblMissionPlayLogOpr_20151123',
+            ]
 
 
-def test_by_dates():
+def test_dump_by_dates():
     with db.Connector(dcfg) as con:
-        ret = db.tables_by_names(con, False)
-        assert ret == [u'TblHackLogOpr_20140308', u'TblHackLogOpr_20140309',
-                       u'TblLogOpr_20140308', u'TblLogOpr_20140309',
-                       u'TblMissionPlayLogOpr_20140308',
-                       u'TblMissionPlayLogOpr_20140309']
-        ret2 = db.tables_by_names(con, True)
-        assert ret2 == [u'TblHackLogOpr_20140308', u'TblLogOpr_20140308',
-                        u'TblMissionPlayLogOpr_20140308']
-
         dates = db.collect_dates(con, False)
-        assert dates == [datetime(2014, 3, 8), datetime(2014, 3, 9)]
+        assert dates == [datetime(2015, 11, 21), datetime(2015, 11, 22),
+                         datetime(2015, 11, 23), datetime(2015, 11, 24)]
 
-        assert db.daily_tables_from_dates(con, dates) ==\
-            [[u'TblHackLogOpr_20140308', u'TblLogOpr_20140308',
-              u'TblMissionPlayLogOpr_20140308'],
-             [u'TblHackLogOpr_20140309', u'TblLogOpr_20140309',
-              u'TblMissionPlayLogOpr_20140309']]
+        tables = db.daily_tables_from_dates(con, dates)
+        assert tables == \
+            [
+                [
+                    u'TblHackLogOpr_20151121',
+                    u'TblLogOpr_20151121',
+                    u'TblMissionPlayLogOpr_20151121',
+                ],
+                [
+                    u'TblHackLogOpr_20151122',
+                    u'TblLogOpr_20151122',
+                    u'TblMissionPlayLogOpr_20151122',
+                ],
+                [
+                    u'TblHackLogOpr_20151123',
+                    u'TblLogOpr_20151123',
+                    u'TblMissionPlayLogOpr_20151123',
+                ],
+                [
+                    u'TblHackLogOpr_20151124',
+                    u'TblLogOpr_20151124',
+                    u'TblMissionPlayLogOpr_20151124',
+                ],
+            ]
 
 
-def test_db_dump():
+def test_dump_db():
     dump.clean_info(dcfg)
     # no dump result check
     with db.Connector(dcfg) as con:
-        assert db.daily_tables_by_change(dcfg, con) == \
-            [[u'TblHackLogOpr_20140308', u'TblLogOpr_20140308',
-              u'TblMissionPlayLogOpr_20140308']]
+        dtbc = db.daily_tables_by_change(dcfg, con)
+        assert dtbc == \
+            [
+                [
+                    u'TblHackLogOpr_20151121',
+                    u'TblLogOpr_20151121',
+                    u'TblMissionPlayLogOpr_20151121',
+                ],
+                [
+                    u'TblHackLogOpr_20151122',
+                    u'TblLogOpr_20151122',
+                    u'TblMissionPlayLogOpr_20151122',
+                ],
+                [
+                    u'TblHackLogOpr_20151123',
+                    u'TblLogOpr_20151123',
+                    u'TblMissionPlayLogOpr_20151123',
+                ],
+            ]
         daily_tables = db.daily_tables_from_dates(con, db.collect_dates(con))
         for tables in daily_tables:
             dumped = db.dump_tables(dcfg, tables, 2)  # 2 max fetch for speed
-
-        dump.db.write_table_info(dcfg, dumped)
+            dump.db.write_table_info(dcfg, dumped)
 
         # check dump result
         folder = dcfg['folder']
         files = os.listdir(folder)
         assert TABLE_INFO_FILE in files
 
+        with open(os.path.join(folder, TABLE_INFO_FILE)) as f:
+            tables = []
+            for line in f:
+                tables.append(line.split(':')[0])
+            assert len(tables) == 9
+
         # check dumped files
-        logopr = [f for f in files if '_wdfwd_' not in f and
-                  'TblLogOpr' in f][0]
+        logopr = [f for f in files if ('_wdfwd_' not in f and
+                  'TblLogOpr' in f and not f.endswith('.swp'))][0]
         dlm = dcfg['field_delimiter']
 
         # and its contents
@@ -83,39 +122,37 @@ def test_db_dump():
             header = f.readline().strip()
             assert len(header.split(dlm)) == 3
             cAccId = f.readline().strip().split(dlm)[0]
-            assert "2" == cAccId
+            assert "17" == cAccId
 
         # modify table then detect change
-        with db.DummyRowAppender(con, 'TblHackLogOpr_20140308', 10):
+        with db.TemporaryRemoveFirstRow(con, 'TblHackLogOpr_20151122'):
             changed_tables = db.daily_tables_by_change(dcfg, con)
-            assert changed_tables == [['TblHackLogOpr_20140308']]
+            assert changed_tables == [['TblHackLogOpr_20151122']]
 
 
-def test_dummy_row_appender():
-    with db.Connector(dcfg) as con:
-        cnt = db.get_table_rowcnt(con, 'TblHackLogOpr_20140308')
-        with db.DummyRowAppender(con, 'TblHackLogOpr_20140308', 10):
-                _cnt = db.get_table_rowcnt(con, 'TblHackLogOpr_20140308')
-                assert _cnt > cnt
-        assert db.get_table_rowcnt(con, 'TblHackLogOpr_20140308') == cnt
-
-
-def test_dump_and_sync():
+def test_dump_dump_and_sync():
     dump.clean_info(dcfg)
     dumped = dump.check_dump_db_and_sync(dcfg, 2)
     assert len(dumped) > 0
 
     # append more rows and check dump info
     with db.Connector(dcfg) as con:
-        with db.DummyRowAppender(con, 'TblHackLogOpr_20140308', 10):
+        with db.TemporaryRemoveFirstRow(con, 'TblHackLogOpr_20151122'):
             ct = db.daily_tables_by_change(dcfg, con)
             ct = [str(t) for t in ct[0]]
-            assert ct == ['TblHackLogOpr_20140308']
+            assert ct == ['TblHackLogOpr_20151122']
 
 
-def test_croniter():
+def test_dump_croniter():
     from croniter import croniter
     base = datetime(2014, 4, 24, 11, 0)
     sch = acfg['service']['schedule']
     it = croniter(sch, base)
     assert it.get_next(datetime) == datetime(2014, 4, 25, 4, 0)
+
+
+def test_dump_no_daily():
+    dump.clean_info(dcfg)
+    # no dump result check
+    with db.Connector(dcfg) as con:
+        pass

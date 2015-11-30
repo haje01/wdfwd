@@ -129,22 +129,19 @@ class TableInfo(object):
         self.types = typs
 
 
-class DummyRowAppender(object):
+class TemporaryRemoveFirstRow(object):
 
-    """dummy row appender."""
+    """temporary remove first row from a table."""
 
-    def __init__(self, con, tbname, count):
+    def __init__(self, con, tbname):
         self.con = con
         self.tbname = tbname
-        self.count = count
 
     def __enter__(self):
         cmd = "BEGIN TRANSACTION"
         execute(self.con, cmd)
-        for _ in range(self.count):
-            cmd = "INSERT INTO %s SELECT TOP(1) * FROM %s" % (self.tbname,
-                                                              self.tbname)
-            execute(self.con, cmd)
+        cmd = "DELETE TOP(1) FROM %s" % self.tbname
+        execute(self.con, cmd)
 
     def __exit__(self, _type, value, tb):
         cmd = "ROLLBACK"
@@ -169,8 +166,12 @@ class Connector(object):
         self.uid = dbcc['uid']
         self.passwd = dbcc['passwd']
         self.fetchsize = dbc['fetchsize']
-        self.table_date_ptrn = re.compile(dbc['table']['date_pattern'])
-        self.table_date_fmt = dbc['table']['date_format']
+        if 'date_pattern' in dbc['table']:
+            self.table_date_ptrn = re.compile(dbc['table']['date_pattern'])
+            self.table_date_fmt = dbc['table']['date_format']
+            self.no_daily_table = False
+        else:
+            self.no_daily_table = True
         self.skip_last = dbc['table'].get('skip_today', True)
         self.sys_schema = dbc['sys_schema']
         self.table_names = [TableInfo(tn) for tn in dbc['table']['names']]
@@ -198,7 +199,7 @@ class Connector(object):
                 opt = conn.getinfo(pyodbc.SQL_TXN_ISOLATION_OPTION)
                 logging.debug("old isolation option: {}".format(opt))
                 cmd = "SET TRANSACTION ISOLATION LEVEL READ COMMITTED"
-                execute(self.conn, cmd)
+                self.cursor.execute(cmd)
                 opt = conn.getinfo(pyodbc.SQL_TXN_ISOLATION_OPTION)
                 logging.debug("new isolation option: {}".format(opt))
         return self
@@ -428,7 +429,8 @@ def daily_tables_by_change(dcfg, con, skip_last_subtable=None):
             if oldcnt != curcnt:
                 logging.debug('append')
                 tmp.append(table)
-        changed_daily_tables.append(tmp)
+        if tmp:
+            changed_daily_tables.append(tmp)
     return changed_daily_tables
 
 
