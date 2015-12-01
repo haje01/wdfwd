@@ -70,8 +70,11 @@ tasks:
                     - LogOpr.TblHackLogOpr_
                     - LogOpr.TblLogOpr_
                     - LogOpr.TblMissionPlayLogOpr_
+                # for daily tables
                 date_pattern: ".*_(\\d{8})"
                 date_format: "%Y%m%d"
+                # for non-daily tables only
+                #   date_column: 'LogTime'
                 skip_last: true
             sys_schema: false
             type_encodings:

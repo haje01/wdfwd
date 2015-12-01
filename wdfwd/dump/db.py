@@ -6,7 +6,7 @@ from datetime import datetime
 import yaml
 import pyodbc  # NOQA
 
-from wdfwd.util import get_dump_fname
+from wdfwd.util import get_dump_fname, normalize_date_str
 from wdfwd.get_config import get_config
 from wdfwd.const import TABLE_INFO_FILE
 
@@ -171,6 +171,7 @@ class Connector(object):
             self.table_date_fmt = dbc['table']['date_format']
             self.no_daily_table = False
         else:
+            self.date_column = dbc['table']['date_column']
             self.no_daily_table = True
         self.skip_last = dbc['table'].get('skip_today', True)
         self.sys_schema = dbc['sys_schema']
@@ -239,10 +240,14 @@ def table_array(con, prefix):
     return res
 
 
-def table_rows(con, tbinfo, max_fetch=None):
+def table_rows(con, tbinfo, date=None, max_fetch=None):
     """Returns all rows from the table."""
     logging.debug('table_rows')
-    cmd = "SELECT {} FROM {}".format(tbinfo.str_cols, tbinfo)
+    if date is None:
+        cmd = "SELECT {} FROM {}".format(tbinfo.str_cols, tbinfo)
+    else:
+        cmd = "SELECT {} FROM {} WHERE CONVERT(VARCHAR(10), LogTime, 11)"\
+            " = CAST('{}' as DATETIME);".format(tbinfo.str_cols, tbinfo, date)
     logging.debug('cmd: ' + cmd)
     execute(con, cmd)
     fetch_cnt = 0
@@ -312,20 +317,23 @@ def get_table_date(con, tbname):
         return datetime.strptime(d, con.table_date_fmt)
 
 
-def _dump_table(dcfg, decode_map, con, tbinfo, max_fetch):
+def _dump_table(dcfg, decode_map, con, tbinfo, date, max_fetch):
     """Dump (sub)tables to files and returns table name."""
     logging.info("dump subtable: %s", tbinfo)
     folder = dcfg['folder']
-    path = os.path.join(folder, get_dump_fname(tbinfo))
+    path = os.path.join(folder, get_dump_fname(tbinfo, date))
 
     tbinfo.build_columns(con)
     _warm_converter(con, decode_map, tbinfo)
     delim = dcfg['field_delimiter']
     with open(path, 'w') as f:
-        cnt = get_table_rowcnt(con, tbinfo)
+        if date is None:
+            cnt = get_table_rowcnt(con, tbinfo)
+        else:
+            cnt = table_rowcnt_by_date(con, tbinfo, date)
         if cnt > 0:
             _write_table_header(f, con, delim, tbinfo)
-            for rows in table_rows(con, tbinfo, max_fetch):
+            for rows in table_rows(con, tbinfo, date, max_fetch):
                 for i, row in enumerate(rows):
                     try:
                         cr = _row_as_strings(row, tbinfo)
@@ -337,19 +345,28 @@ def _dump_table(dcfg, decode_map, con, tbinfo, max_fetch):
                     else:
                         f.write(delim.join(cr))
                         f.write('\n')
-    return tbinfo
+    if date is None:
+        return str(tbinfo)
+    else:
+        return "{}_{}".format(tbinfo, normalize_date_str(date))
 
 
-def dump_tables(dcfg, tables, max_fetch=None):
+def dump_table_rows_by_date(dcfg, con, tbname, date, max_fetch=None):
+    logging.info("dump_table_rows_by_date {} {}".format(tbname, date))
+    decode_map = _make_decode_map(dcfg)
+    dumped = _dump_table(dcfg, decode_map, con, tbname, date, max_fetch)
+    return dumped, date
+
+
+def dump_tables(dcfg, con, tables, max_fetch=None):
     logging.info("dump_tables")
-    with Connector(dcfg) as con:
-        dumped_tables = []
-        decode_map = _make_decode_map(dcfg)
-        for tbinfo in tables:
-            logging.info("dump table: %s", tbinfo)
-            dumped = _dump_table(dcfg, decode_map, con, tbinfo, max_fetch)
-            if dumped is not None:
-                dumped_tables.append(dumped)
+    dumped_tables = []
+    decode_map = _make_decode_map(dcfg)
+    for tbinfo in tables:
+        logging.info("dump table: %s", tbinfo)
+        dumped = _dump_table(dcfg, decode_map, con, tbinfo, None, max_fetch)
+        if dumped is not None:
+            dumped_tables.append(dumped)
     return dumped_tables
 
 
@@ -394,7 +411,7 @@ def tables_by_names(con, skip_last_subtable=None):
     return tables
 
 
-def _read_table_info(dcfg):
+def read_table_info(dcfg):
     folder = dcfg['folder']
     rpath = os.path.join(folder, TABLE_INFO_FILE)
     if os.path.isfile(rpath):
@@ -412,7 +429,7 @@ def daily_tables_by_change(dcfg, con, skip_last_subtable=None):
     # logging.debug("dates: " + str(dates))
     daily_tables = daily_tables_from_dates(con, dates)
     # logging.debug("daily_tables: " + str(daily_tables))
-    res, rpath = _read_table_info(dcfg)
+    res, rpath = read_table_info(dcfg)
     if res is None:
         return daily_tables
     changed_daily_tables = []
@@ -440,28 +457,72 @@ def daily_tables_from_dates(con, dates):
     for date in dates:
         daily_tables = []
         for tbname in tbnames:
-            daily_tables.append(
-                tbname +
-                datetime.strftime(
-                    date,
-                    con.table_date_fmt))
+            daily_tables.append(tbname + datetime.strftime(date,
+                                                           con.table_date_fmt))
         tables.append(daily_tables)
     return tables
 
 
 def write_table_info(dcfg, dumped_tables):
     logging.info('write_table_info')
-    prev, rpath = _read_table_info(dcfg)
+    prev, rpath = read_table_info(dcfg)
     result = {}
     if prev is not None:
         result.update(prev)
 
     with Connector(dcfg) as con:
-        for table in dumped_tables:
-            cnt = get_table_rowcnt(con, table)
+        for dinfo in dumped_tables:
+            if type(dinfo) == tuple:
+                table, date = dinfo
+                date_part = '_' + normalize_date_str(date)
+                dtable = table.replace(date_part, '')
+                cnt = table_rowcnt_by_date(con, dtable, date)
+            else:
+                table = dinfo
+                cnt = get_table_rowcnt(con, table)
             result[str(table)] = cnt
 
     logging.info('writing %s', rpath)
     with open(rpath, 'w') as f:
         f.write(yaml.dump(result, default_flow_style=False))
     return rpath
+
+
+def table_rowcnt_by_date(con, tbname, date):
+    cmd = "SELECT COUNT(*) FROM {} WHERE CONVERT(VARCHAR(10), LogTime, 11)"\
+        " = CAST('{}' as DATETIME);".format(tbname, date)
+    execute(con, cmd)
+    rows = con.cursor.fetchall()
+    return int(rows[0][0])
+
+
+def get_data_dates(con, skip_last_date=None):
+    if skip_last_date is None:
+        skip_last_date = con.skip_last
+
+    tbnames = con.table_names
+    all_dates = set()
+    for tbname in tbnames:
+        cmd = "SELECT DISTINCT(CONVERT(VARCHAR(10), {}, 111)) FROM {}".\
+            format(con.date_column, tbname)
+        execute(con, cmd)
+        rows = con.cursor.fetchall()
+        dates = set([row[0] for row in rows])
+        all_dates |= dates
+
+    all_dates = sorted(all_dates)
+    if skip_last_date:
+        all_dates = all_dates[:-1]
+
+    return all_dates
+
+
+def updated_day_tables(dcfg, con, date):
+    res, rpath = read_table_info(dcfg)
+    tbnames = con.table_names
+    for tbname in tbnames:
+        curcnt = table_rowcnt_by_date(con, tbname, date)
+        dtable = "{}_{}".format(str(tbname), normalize_date_str(date))
+        changed = res is None or curcnt != res.get(dtable, -1)
+        if changed:
+            yield tbname

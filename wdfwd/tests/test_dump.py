@@ -4,6 +4,7 @@ from datetime import datetime
 from wdfwd.get_config import get_config
 from wdfwd.const import TABLE_INFO_FILE
 from wdfwd import dump
+from wdfwd.tests import write_eloa_cfg
 from wdfwd.dump import db
 
 cfg = get_config()
@@ -27,8 +28,10 @@ def test_dump_by_names():
         assert tables == \
             [
                 u'TblHackLogOpr_20151122', u'TblHackLogOpr_20151123',
-                u'TblLogOpr_20151121', u'TblLogOpr_20151122', u'TblLogOpr_20151123',
-                u'TblMissionPlayLogOpr_20151122', u'TblMissionPlayLogOpr_20151123',
+                u'TblLogOpr_20151121', u'TblLogOpr_20151122',
+                u'TblLogOpr_20151123',
+                u'TblMissionPlayLogOpr_20151122',
+                u'TblMissionPlayLogOpr_20151123',
                 u'TblMissionPlayLogOpr_20151124',
             ]
         tables = db.tables_by_names(con)
@@ -36,7 +39,8 @@ def test_dump_by_names():
             [
                 u'TblHackLogOpr_20151122',
                 u'TblLogOpr_20151121', u'TblLogOpr_20151122',
-                u'TblMissionPlayLogOpr_20151122', u'TblMissionPlayLogOpr_20151123',
+                u'TblMissionPlayLogOpr_20151122',
+                u'TblMissionPlayLogOpr_20151123',
             ]
 
 
@@ -97,8 +101,8 @@ def test_dump_db():
             ]
         daily_tables = db.daily_tables_from_dates(con, db.collect_dates(con))
         for tables in daily_tables:
-            dumped = db.dump_tables(dcfg, tables, 2)  # 2 max fetch for speed
-            dump.db.write_table_info(dcfg, dumped)
+            dumped = db.dump_tables(dcfg, con, tables, 2)  # 2 max fetch for speed
+            db.write_table_info(dcfg, dumped)
 
         # check dump result
         folder = dcfg['folder']
@@ -112,8 +116,9 @@ def test_dump_db():
             assert len(tables) == 9
 
         # check dumped files
-        logopr = [f for f in files if ('_wdfwd_' not in f and
-                  'TblLogOpr' in f and not f.endswith('.swp'))][0]
+        logopr = [fi for fi in files if
+                  ('_wdfwd_' not in fi and 'TblLogOpr' in fi and not
+                   fi.endswith('.swp'))][0]
         dlm = dcfg['field_delimiter']
 
         # and its contents
@@ -130,17 +135,31 @@ def test_dump_db():
             assert changed_tables == [['TblHackLogOpr_20151122']]
 
 
-def test_dump_dump_and_sync():
+def test_dump_daily_table_and_sync():
     dump.clean_info(dcfg)
     dumped = dump.check_dump_db_and_sync(dcfg, 2)
     assert len(dumped) > 0
 
-    # append more rows and check dump info
+    # delete a row and check dump info
     with db.Connector(dcfg) as con:
         with db.TemporaryRemoveFirstRow(con, 'TblHackLogOpr_20151122'):
             ct = db.daily_tables_by_change(dcfg, con)
             ct = [str(t) for t in ct[0]]
             assert ct == ['TblHackLogOpr_20151122']
+
+
+def test_dump_table_updates_and_sync():
+    dcfg2 = write_eloa_cfg(dcfg)
+    dump.clean_info(dcfg2)
+    dumped = dump.check_dump_db_and_sync(dcfg2, 2)
+    assert len(dumped) == 4
+
+    # delete a row and check dump info
+    with db.Connector(dcfg2) as con:
+        with db.TemporaryRemoveFirstRow(con, 'ChatingLog_TBL'):
+            ut = [t for t in db.updated_day_tables(dcfg2, con, '2015/11/23')]
+            ut = [str(t) for t in ut]
+            assert ut == ['ChatingLog_TBL']
 
 
 def test_dump_croniter():
@@ -149,10 +168,3 @@ def test_dump_croniter():
     sch = acfg['service']['schedule']
     it = croniter(sch, base)
     assert it.get_next(datetime) == datetime(2014, 4, 25, 4, 0)
-
-
-def test_dump_no_daily():
-    dump.clean_info(dcfg)
-    # no dump result check
-    with db.Connector(dcfg) as con:
-        pass

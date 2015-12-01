@@ -84,8 +84,17 @@ class ChangeDir(object):
         os.chdir(self.cwd)
 
 
-def get_dump_fname(tbname):
-    return "%s.csv" % tbname.split('.')[-1]
+def get_dump_fname(_tbname, _date=None):
+    tbname = _tbname.split('.')[-1]
+    if _date is None:
+        return "%s.csv" % tbname
+    else:
+        date = normalize_date_str(_date)
+        return "{}_{}.csv".format(tbname, date)
+
+
+def normalize_date_str(date):
+    return date.replace('/', '')
 
 
 def remove_file(fpath):

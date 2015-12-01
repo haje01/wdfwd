@@ -4,6 +4,7 @@ import pytest
 
 from wdfwd.dump import db
 from wdfwd.get_config import get_config
+from wdfwd.tests import write_eloa_cfg
 
 
 cfg = get_config()
@@ -64,7 +65,7 @@ def test_db_basic():
         assert len(gen.next()) == dbc['fetchsize']
 
         # fast fetch table row count
-        assert db.get_table_rowcnt(con, ti) == 11791
+        assert db.get_table_rowcnt(con, ti) == 11790
 
 
 def test_db_temp_del():
@@ -87,3 +88,17 @@ def test_db_temp_del():
 def test_db_connect():
     with db.Connector(dcfg) as con:
         print con.conn, con.cursor
+
+
+def test_db_data_dates():
+    dcfg2 = write_eloa_cfg(dcfg)
+    with db.Connector(dcfg2) as con:
+        dates = db.get_data_dates(con, False)
+        assert dates == ['2015/11/23', '2015/11/24', '2015/11/25']
+
+
+def test_db_table_rowcnt_by_date():
+    dcfg2 = write_eloa_cfg(dcfg)
+    with db.Connector(dcfg2) as con:
+        n_rows = db.table_rowcnt_by_date(con, 'CharStateLog_TBL', '2015/11/23')
+        assert n_rows == 375476
