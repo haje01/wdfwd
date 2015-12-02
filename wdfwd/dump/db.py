@@ -177,6 +177,22 @@ class Connector(object):
         self.sys_schema = dbc['sys_schema']
         self.table_names = [TableInfo(tn) for tn in dbc['table']['names']]
 
+    @property
+    def txn_iso_level(self):
+        cmd = """
+SELECT CASE transaction_isolation_level
+WHEN 0 THEN 'Unspecified'
+WHEN 1 THEN 'ReadUncommitted'
+WHEN 2 THEN 'ReadCommitted'
+WHEN 3 THEN 'Repeatable'
+WHEN 4 THEN 'Serializable'
+WHEN 5 THEN 'Snapshot' END AS TRANSACTION_ISOLATION_LEVEL
+FROM sys.dm_exec_sessions
+WHERE Session_id = @@SPID"""
+        self.cursor.execute(cmd)
+        rv = self.cursor.fetchall()[0][0]
+        return rv
+
     def __enter__(self):
         global pyodbc
         logging.debug('db.Connector enter')
@@ -195,14 +211,13 @@ class Connector(object):
         else:
             self.conn = conn
             self.cursor = conn.cursor()
+            self.cursor.execute("SET DATEFORMAT ymd")
             if self.read_uncommit:
                 logging.debug("set read uncommited")
-                opt = conn.getinfo(pyodbc.SQL_TXN_ISOLATION_OPTION)
-                logging.debug("old isolation option: {}".format(opt))
-                cmd = "SET TRANSACTION ISOLATION LEVEL READ COMMITTED"
+                logging.debug("  old isolation option: {}".format(self.txn_iso_level))
+                cmd = "SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED"
                 self.cursor.execute(cmd)
-                opt = conn.getinfo(pyodbc.SQL_TXN_ISOLATION_OPTION)
-                logging.debug("new isolation option: {}".format(opt))
+                logging.debug("  new isolation option: {}".format(self.txn_iso_level))
         return self
 
     def __exit__(self, _type, value, tb):
@@ -246,7 +261,7 @@ def table_rows(con, tbinfo, date=None, max_fetch=None):
     if date is None:
         cmd = "SELECT {} FROM {}".format(tbinfo.str_cols, tbinfo)
     else:
-        cmd = "SELECT {} FROM {} WHERE CONVERT(VARCHAR(10), LogTime, 11)"\
+        cmd = "SELECT {} FROM {} WHERE CAST(LogTime AS DATE)"\
             " = CAST('{}' as DATETIME);".format(tbinfo.str_cols, tbinfo, date)
     logging.debug('cmd: ' + cmd)
     execute(con, cmd)
@@ -489,7 +504,8 @@ def write_table_info(dcfg, dumped_tables):
 
 
 def table_rowcnt_by_date(con, tbname, date):
-    cmd = "SELECT COUNT(*) FROM {} WHERE CONVERT(VARCHAR(10), LogTime, 11)"\
+    logging.debug("table_rowcnt_by_date {} of {}".format(tbname, date))
+    cmd = "SELECT COUNT(*) FROM {} WHERE CAST(LogTime as DATE)"\
         " = CAST('{}' as DATETIME);".format(tbname, date)
     execute(con, cmd)
     rows = con.cursor.fetchall()
@@ -503,7 +519,7 @@ def get_data_dates(con, skip_last_date=None):
     tbnames = con.table_names
     all_dates = set()
     for tbname in tbnames:
-        cmd = "SELECT DISTINCT(CONVERT(VARCHAR(10), {}, 111)) FROM {}".\
+        cmd = "SELECT DISTINCT(CAST({} AS DATE)) FROM {}".\
             format(con.date_column, tbname)
         execute(con, cmd)
         rows = con.cursor.fetchall()
@@ -518,6 +534,7 @@ def get_data_dates(con, skip_last_date=None):
 
 
 def updated_day_tables(dcfg, con, date):
+    logging.debug("updated_day_tables {}".format(date))
     res, rpath = read_table_info(dcfg)
     tbnames = con.table_names
     for tbname in tbnames:

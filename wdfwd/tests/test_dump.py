@@ -101,7 +101,8 @@ def test_dump_db():
             ]
         daily_tables = db.daily_tables_from_dates(con, db.collect_dates(con))
         for tables in daily_tables:
-            dumped = db.dump_tables(dcfg, con, tables, 2)  # 2 max fetch for speed
+            # 2 max fetch for speed
+            dumped = db.dump_tables(dcfg, con, tables, 2)
             db.write_table_info(dcfg, dumped)
 
         # check dump result
@@ -157,7 +158,7 @@ def test_dump_table_updates_and_sync():
     # delete a row and check dump info
     with db.Connector(dcfg2) as con:
         with db.TemporaryRemoveFirstRow(con, 'ChatingLog_TBL'):
-            ut = [t for t in db.updated_day_tables(dcfg2, con, '2015/11/23')]
+            ut = [t for t in db.updated_day_tables(dcfg2, con, '2015-11-23')]
             ut = [str(t) for t in ut]
             assert ut == ['ChatingLog_TBL']
 

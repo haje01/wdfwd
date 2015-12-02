@@ -29,6 +29,7 @@ def check_dump_db_and_sync(dcfg, max_fetch=None):
 
 
 def _dump_table_updates_for_date(dcfg, con, date, dumped, max_fetch):
+    logging.debug("_dump_table_updates_for_date {}".format(date))
     res, rpath = db.read_table_info(dcfg)
     tbnames = con.table_names
     folder = dcfg['folder']
@@ -47,7 +48,9 @@ def _dump_table_updates_for_date(dcfg, con, date, dumped, max_fetch):
 
 
 def _dump_table_updates_n_sync(dcfg, con, dumped, max_fetch):
+    logging.debug("_dump_table_updates_n_sync")
     all_dates = db.get_data_dates(con)
+    logging.debug("all_dates: {}".format(all_dates))
     for date in all_dates:
         _dump_table_updates_for_date(dcfg, con, date, dumped, max_fetch)
 

@@ -1,3 +1,15 @@
+0.0.5.8
+=======
+- Fix SQL datetime cast
+
+0.0.5.7
+=======
+- fix Isolation Level
+
+0.0.5.6
+=======
+- Support non-daily table dump
+
 0.0.5.5
 =======
 - new option for 'READ UNCOMMITTED'
