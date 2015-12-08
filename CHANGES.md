@@ -1,3 +1,7 @@
+0.0.5.9
+=======
+- Support Unicode delimiter
+
 0.0.5.8
 =======
 - Fix SQL datetime cast

@@ -60,6 +60,8 @@ tasks:
         # NOTE: Dump folder where DB dumped .csv files are located.
         folder: $WDFWD_DIR\wdfwd\tests\dump
         field_delimiter: "|"
+        # field_delimiter: "\u00AC"   # 'Not symbol' for complex string dump like chating
+                                      # Possibly makes grep slow
         db:
             # NOTE: Local DB connection info
             connect:

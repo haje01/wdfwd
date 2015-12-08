@@ -94,7 +94,7 @@ def get_dump_fname(_tbname, _date=None):
 
 
 def normalize_date_str(date):
-    return date.replace('/', '')
+    return date.replace('-', '')
 
 
 def remove_file(fpath):

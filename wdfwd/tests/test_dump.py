@@ -120,7 +120,7 @@ def test_dump_db():
         logopr = [fi for fi in files if
                   ('_wdfwd_' not in fi and 'TblLogOpr' in fi and not
                    fi.endswith('.swp'))][0]
-        dlm = dcfg['field_delimiter']
+        dlm = dcfg['field_delimiter'].encode('utf8')
 
         # and its contents
         with open(os.path.join(folder, logopr), 'r') as f:

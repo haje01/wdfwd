@@ -114,7 +114,7 @@ class TableInfo(object):
             if not row:
                 break
             totalcol += 1
-            col = row[3]
+            col = row[3].encode('utf8')
             typ = row[7]
             if self.icols is not None and col not in self.icols:
                 continue
@@ -214,10 +214,12 @@ WHERE Session_id = @@SPID"""
             self.cursor.execute("SET DATEFORMAT ymd")
             if self.read_uncommit:
                 logging.debug("set read uncommited")
-                logging.debug("  old isolation option: {}".format(self.txn_iso_level))
+                logging.debug("  old isolation option: {}".
+                              format(self.txn_iso_level))
                 cmd = "SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED"
                 self.cursor.execute(cmd)
-                logging.debug("  new isolation option: {}".format(self.txn_iso_level))
+                logging.debug("  new isolation option: {}".
+                              format(self.txn_iso_level))
         return self
 
     def __exit__(self, _type, value, tb):
@@ -340,7 +342,7 @@ def _dump_table(dcfg, decode_map, con, tbinfo, date, max_fetch):
 
     tbinfo.build_columns(con)
     _warm_converter(con, decode_map, tbinfo)
-    delim = dcfg['field_delimiter']
+    delim = dcfg['field_delimiter'].encode('utf8')
     with open(path, 'w') as f:
         if date is None:
             cnt = get_table_rowcnt(con, tbinfo)
