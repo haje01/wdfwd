@@ -162,7 +162,7 @@ class Connector(object):
             self.server = '%s,%d' % (self.server, port)
         self.database = dbcc['database']
         self.trustcon = dbcc['trustcon']
-        self.read_uncommit = dbcc['read_uncommit']
+        self.read_uncommit = dbcc['read_uncommit'] if 'read_uncommit' in dbcc else True
         self.uid = dbcc['uid']
         self.passwd = dbcc['passwd']
         self.fetchsize = dbc['fetchsize']
