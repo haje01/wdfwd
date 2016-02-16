@@ -179,7 +179,7 @@ DB(= SQLServer)에 남고 있는 로그 테이블을 로컬 CSV 파일로 덤프
 
 `db` > `connect` > `database` - DB 이름
 
-`db` > `connect` > `trustcon` - DB 서버가 로컬에 있는 경우만 `true` 아니면 `false`
+`db` > `connect` > `read_uncommit` - DB 서버가 로컬에 있는 경우만 `true` 아니면 `false`
 
 `db` > `connect` > `trustcon` - 테이블을 읽는 동안 락이 걸리지 않도록 `true`로 해두는 것이 좋다.
 
@@ -275,4 +275,3 @@ WdFwd가 설치된 장비에서 DB로의 접속이 가능한지 확인한다.
 
 ### rsync가 자주 실패할 때
 L7 스위치의 ACK Flooding 정책에 따라 막히는 때가 있다. 시스템 관리자에 확인 후 예외 등록을 요청하자.
-
