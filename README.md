@@ -16,7 +16,7 @@ WdFwd는 [WzDat](https://github.com/haje01/wzdat)을 위해 만들어 졌으나,
 
 ### 방화벽 오픈
 
-서버의 경우 대부분 방화벽 뒤에 존재하기에, 서버에서 WzDat 서버(=로그 수집 서버)로 네트워크 인가(포트 873)가 필요하다.
+서버의 경우 대부분 방화벽 뒤에 존재하기에, 서버에서 WzDat 서버(=로그 수집 서버)로 네트워크 인가(포트 `873`)가 필요하다.
  
 ## 설치
 
@@ -26,12 +26,16 @@ WdFwd는 [WzDat](https://github.com/haje01/wzdat)을 위해 만들어 졌으나,
 ### WdFwd 설치
 1. 미리 폴더 전체로 압축해둔 WdFwd 압축파일을 푼다 예)`c:\wdfwd-버전`
 1. `files/default-config.yml`을 `config.yml`로 복사
-1. 작업용 임시폴더를 만든다 예) `c:\wdfwd-temp`
+1. 임시 작업 폴더를 만든다 예) `c:\wdfwd-temp`
 
 ## 설정하기
-위에서 복사해둔 `config.yml`을  notepad로 열고 편집한다. (이때 항상 이것으로 오픈되도록 설정해두면 편리하다) 기본적으로 다음과 같은 구조이다.
+위에서 복사해둔 `config.yml`을  notepad로 열고 편집한다. (이때 항상 이것으로 오픈되도록 설정해두면 편리하다) 
+
+여러가지 값들이 있으나, 기본 값을 이용하고, 설명된 부분만 설정 후 이용하면 될것이다.
 
 ### app 설정
+
+어플리케이션 관련 설정이다.
 
     app:
         debug: false
@@ -45,16 +49,20 @@ WdFwd는 [WzDat](https://github.com/haje01/wzdat)을 위해 만들어 졌으나,
         rsync_path: # RSYNC-EXE-FILE-PATH
         # Limit rsync bandwidth in KB/Sec. 0 for no limit, skip for default
         rsync_bwlimit: 5120  # 5 MByte/Sec, Default
-    
-`schedule` - 포워더가 동작할 시간을 crontab 방식으로 표기한다. 특정 시간이나 날짜 등 다양한 실행 조건을 표현할 수 있다.
 
-`force_first_run` - 최초 서비스 실행 시 무조건 한 번 동작한다.
+`service` > `name` - 서비스로 등록될 이름
+    
+`service` > `schedule` - 포워더가 동작할 시간을 crontab 방식으로 표기한다. 특정 시간이나 날짜 등 다양한 실행 조건을 표현할 수 있다.
+
+`service` > `force_first_run` - 최초 서비스 실행 시 무조건 한 번 동작한다.
 
 `rsync_path` - cwRsync 폴더 내 `rsync.exe`까지의 풀 경로명으로 지정
 
 `rsync_bwlimit` - 한꺼번에 많은 로그를 전송하면 서비스 장비의 네트워크에 무리가 갈 수 있기에, 대역폭 제한을 걸 수 있다. 기본은 초당 5M 바이트이다.
 
 ### log 설정
+
+WdFwd 자체 로그 관련 설정이다.
     
     log:
         version: 1
@@ -172,6 +180,8 @@ DB(= SQLServer)에 남고 있는 로그 테이블을 로컬 CSV 파일로 덤프
 `db` > `connect` > `database` - DB 이름
 
 `db` > `connect` > `trustcon` - DB 서버가 로컬에 있는 경우만 `true` 아니면 `false`
+
+`db` > `connect` > `trustcon` - 테이블을 읽는 동안 락이 걸리지 않도록 `true`로 해두는 것이 좋다.
 
 `db` > `connect` > `uid` - DB 계정 ID
 
