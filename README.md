@@ -203,7 +203,7 @@ DB(= SQLServer)에 남고 있는 로그 테이블을 로컬 CSV 파일로 덤프
 	예) `{type: 'varchar', encoding: 'cp949'}`
 	예) `{type: 'varchar', func: 'lambda x: x.encode('utf8')}`
 
-`db` > `to_url` - 대상 파일이 전송될 URL이다. `rsync-user@myserver.net::rsync-backup/myprj/mysvr/dblog`형식으로 기입한다. 
+`db` > `to_url` - CSV 파일이 전송될 URL이다. `rsync-user@myserver.net::rsync-backup/myprj/mysvr/dblog`형식으로 기입한다. 
 
 ## 실행하기
 
