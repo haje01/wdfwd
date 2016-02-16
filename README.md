@@ -203,6 +203,8 @@ DB(= SQLServer)에 남고 있는 로그 테이블을 로컬 CSV 파일로 덤프
 	예) `{type: 'varchar', encoding: 'cp949'}`
 	예) `{type: 'varchar', func: 'lambda x: x.encode('utf8')}`
 
+`db` > `to_url` - 대상 파일이 전송될 URL이다. `rsync-user@myserver.net::rsync-backup/myprj/mysvr/dblog`형식으로 기입한다. 
+
 ## 실행하기
 
 ### 환경변수 설정
@@ -275,3 +277,6 @@ WdFwd가 설치된 장비에서 DB로의 접속이 가능한지 확인한다.
 
 ### rsync가 자주 실패할 때
 L7 스위치의 ACK Flooding 정책에 따라 막히는 때가 있다. 시스템 관리자에 확인 후 예외 등록을 요청하자.
+
+
+
