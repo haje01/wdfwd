@@ -1,6 +1,6 @@
 # WdFwd
 
-유닉스 계열의 OS에는 각종 로그를 포워딩하기 위한 좋은 솔루션들(예를 들어 [Fluentd](http://www.fluentd.org) )이 많이 있다. 그러나 윈도우를 위한 로그 포워더는 부족하다. WdFwd(=WzDat Log Forwarder)는 윈도우 서비스로 설치되어 파일 로그나 DB에 저장된 로그를 분석을 위해 포워딩해준다.
+유닉스 계열의 OS에는 각종 로그를 포워딩하기 위한 좋은 솔루션([Fluentd](http://www.fluentd.org)같은)들이 많이 있다. 그러나 윈도우를 위한 로그 포워더는 부족하다. WdFwd(=WzDat Log Forwarder)는 윈도우 서비스로 설치되어 파일 로그나 DB에 저장된 로그를 분석을 위해 포워딩해준다.
 
 WdFwd는 [WzDat](https://github.com/haje01/wzdat)을 위해 만들어 졌으나, [rsync](https://rsync.samba.org) 서버가 설치되어 있는 곳이면 로그를 전송할 수 있다.
 
