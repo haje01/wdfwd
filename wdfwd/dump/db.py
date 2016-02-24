@@ -162,7 +162,8 @@ class Connector(object):
             self.server = '%s,%d' % (self.server, port)
         self.database = dbcc['database']
         self.trustcon = dbcc['trustcon']
-        self.read_uncommit = dbcc['read_uncommit'] if 'read_uncommit' in dbcc else True
+        self.read_uncommit = dbcc['read_uncommit'] if 'read_uncommit' in dbcc\
+            else True
         self.uid = dbcc['uid']
         self.passwd = dbcc['passwd']
         self.fetchsize = dbc['fetchsize']
@@ -246,7 +247,7 @@ def table_array(con, prefix):
     logging.debug('table_array')
     """Return table name array by matching prefix."""
     cmd = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME"\
-          " LIKE '%s%%'" % prefix
+          " LIKE '%s%%' AND TABLE_CATALOG='%s'" % (prefix, con.database)
     execute(con, cmd)
     logging.debug('cmd: ' + cmd)
     rows = con.cursor.fetchall()
@@ -396,7 +397,7 @@ def _make_decode_map(dcfg):
                 typ = te['type']
                 if 'encoding' in te:
                     enc = te['encoding']
-                    decode_map[typ] = lambda x: x.decode(enc).encode('utf8')
+                    decode_map[typ] = lambda x: x.decode(enc).encode('utf8')  # NOQA
                 elif 'func' in te:
                     func = eval(te['func'])
                     decode_map[typ] = func

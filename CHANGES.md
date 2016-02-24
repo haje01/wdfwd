@@ -1,3 +1,7 @@
+0.0.6.0
+=======
+- Check DB name when table iteration
+
 0.0.5.9
 =======
 - Support Unicode delimiter
