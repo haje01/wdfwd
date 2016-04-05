@@ -246,8 +246,8 @@ def table_array(con, prefix):
         prefix = '%' + prefix.split('.')[-1]
     logging.debug('table_array')
     """Return table name array by matching prefix."""
-    cmd = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME"\
-          " LIKE '%s%%' AND TABLE_CATALOG='%s'" % (prefix, con.database)
+    cmd = "SELECT NAME FROM SYS.TABLES WHERE NAME"\
+          " LIKE '%s%%'" % prefix
     execute(con, cmd)
     logging.debug('cmd: ' + cmd)
     rows = con.cursor.fetchall()

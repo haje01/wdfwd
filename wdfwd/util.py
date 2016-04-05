@@ -4,6 +4,8 @@ import tempfile
 import time
 from subprocess import check_call as _check_call, CalledProcessError
 
+import win32file
+
 
 def cap_call(cmd, retry=0, _raise=True, _test=False):
     logging.info('cap_call cmd: {}, retry: {}'.format(str(cmd), _raise))
@@ -82,6 +84,27 @@ class ChangeDir(object):
 
     def __exit__(self, _type, value, tb):
         os.chdir(self.cwd)
+
+
+class OpenNoLock(object):
+
+    def __init__(self, fname, moveto=None):
+        self.fname = fname
+        self.moveto = moveto
+
+    def __enter__(self):
+        self.fh = win32file.CreateFile(self.fname, win32file.GENERIC_READ,
+                                       win32file.FILE_SHARE_DELETE |
+                                       win32file.FILE_SHARE_READ |
+                                       win32file.FILE_SHARE_WRITE, None,
+                                       win32file.OPEN_EXISTING,
+                                       win32file.FILE_ATTRIBUTE_NORMAL, None)
+        if self.moveto:
+            win32file.SetFilePointer(self.fh, self.moveto,
+                                     win32file.FILE_BEGIN)
+
+    def __exit__(self, _type, value, tb):
+        win32file.CloseHandle(self.fh)
 
 
 def get_dump_fname(_tbname, _date=None):

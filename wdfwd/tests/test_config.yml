@@ -37,6 +37,18 @@ log:
 test:
     force_today: '20140309'
 
+tailing:
+    pos_dir: $WDFWD_DIR\wdfwd\tests\tpos
+    from:
+        - file:
+            dir: $WDFWD_DIR\wdfwd\tests\tlog
+            update_interval: 60
+            send_interval: 3
+            pattern: tailtest_*-*-*.log
+            tag: wdfwd.tail
+    to:
+        fluent: ['localhost', 24224]
+
 tasks:
     # Plain folder sync
     - sync_folder:
