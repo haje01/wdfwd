@@ -31,6 +31,18 @@ log:
         handlers: [file]
     to_url: # RSYNC-SERVER-URL-FOR-LOG ex) rsync-user@myserver.net::rsync-backup/myprj
 
+
+tailing:
+    pos_dir: # TAIL-POS-FOLDER-PATH ex) C:\wdfwd-temp
+    from:
+        - file:
+            dir: # LOG-FILE-FOLDER-TO-TAIL ex) C:\MyApp\tlog
+            pattern: # LOG-FILE-PATTERN ex) log_*-*-*.log
+            tag: # FLUENT-TAG  ex) wdfwd.myapp.tlog
+    to:
+        fluent: # FLUENT-SERVER-IP-AND-PORT ex) ['localhost', 24224]
+
+
 tasks:
     # Plain folder sync
     - sync_folder:
