@@ -29,3 +29,4 @@ def get_config(envvar='WDFWD_CFG'):
         cfg = yaml.load(f)
         cfg = _expand_var(cfg)
         return cfg
+    logging.info("done")

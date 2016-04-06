@@ -42,10 +42,12 @@ tailing:
     from:
         - file:
             dir: $WDFWD_DIR\wdfwd\tests\tlog
-            update_interval: 60
-            send_interval: 3
             pattern: tailtest_*-*-*.log
             tag: wdfwd.tail
+        - file:
+            dir: $WDFWD_DIR\wdfwd\tests\tlog
+            pattern: tailtest2_*-*-*.log
+            tag: wdfwd.tail2
     to:
         fluent: ['localhost', 24224]
 

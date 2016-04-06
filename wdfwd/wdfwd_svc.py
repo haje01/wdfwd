@@ -37,12 +37,17 @@ class WdFwdService(win32serviceutil.ServiceFramework):
         servicemanager.LogMsg(servicemanager.EVENTLOG_INFORMATION_TYPE,
                               servicemanager.PYS_SERVICE_STARTED,
                               (self._svc_name_, ''))
+
+        app.start_tailing()
+
         while True:
-            app.run()
+            app.run_scheduled()
             result = win32event.WaitForSingleObject(self.haltEvent,
                                                     SVC_SLEEP_SEC)
             if result == win32event.WAIT_OBJECT_0:
                 break
+
+        app.stop_tailing()
 
         servicemanager.LogInfoMsg("Service is finished.")
         util.log_head("Service Finish")

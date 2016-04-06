@@ -1,3 +1,4 @@
+import os
 import time
 from datetime import datetime
 import logging
@@ -8,10 +9,12 @@ from croniter import croniter
 from wdfwd.get_config import get_config
 from wdfwd.dump import check_dump_db_and_sync
 from wdfwd.sync import sync_folder, sync_file, sync_files, find_file_by_ptrn
+from wdfwd.tail import FileTailer, TailThread, SEND_TERM, UPDATE_TERM
 
 
 cfg = get_config()
 appc = cfg['app']
+tailc = cfg.get('tailing', None)
 
 start_dt = datetime.now()
 schedule = appc['service']['schedule']
@@ -22,8 +25,51 @@ LOG_SYNC_CNT = 30
 
 force_first_run = appc['service'].get('force_first_run', False)
 
+tail_threads = []
 
-def run():
+
+def start_tailing():
+    logging.debug("start_tailing")
+    if not tailc:
+        return
+    pos_dir = tailc['pos_dir']
+    afrom = tailc['from']
+    fluent = tailc['to']['fluent']
+    # override cfg for test
+    fluent_ip = os.environ.get('WDFWD_TEST_FLUENT_IP', fluent[0])
+    fluent_port = int(os.environ.get('WDFWD_TEST_FLUENT_PORT', fluent[1]))
+
+    for i, src in enumerate(afrom):
+        cmd = src.keys()[0]
+        if cmd == 'file':
+            filec = src[cmd]
+            bdir = filec['dir']
+            ptrn = filec['pattern']
+            tag = filec['tag']
+            send_term = filec.get('send_term', SEND_TERM)
+            update_term = filec.get('update_term', UPDATE_TERM)
+            logging.debug("start file tail - bdir: '{}', ptrn: '{}', tag:"
+                          "'{}', pos_dir: '{}', fluent: '{}'".format(bdir,
+                                                                     ptrn, tag,
+                                                                     pos_dir,
+                                                                     fluent))
+            tailer = FileTailer(bdir, ptrn, tag, pos_dir, fluent_ip,
+                                fluent_port, 0)
+            name = "tailer{}".format(i)
+            logging.debug("create & start {} thread".format(name))
+            trd = TailThread(name, tailer, send_term, update_term)
+            tail_threads.append(trd)
+            trd.start()
+
+
+def stop_tailing():
+    logging.debug("stop_tailing")
+    time.sleep(2)
+    for trd in tail_threads:
+        trd.exit()
+
+
+def run_scheduled():
     """Run application main."""
 
     global next_dt, force_first_run
