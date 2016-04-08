@@ -56,6 +56,7 @@ def start_tailing():
             tailer = FileTailer(bdir, ptrn, tag, pos_dir, fluent_ip,
                                 fluent_port, 0)
             name = "tailer{}".format(i)
+            tailer.trd_name = name
             logging.debug("create & start {} thread".format(name))
             trd = TailThread(name, tailer, send_term, update_term)
             tail_threads.append(trd)

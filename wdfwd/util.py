@@ -88,23 +88,37 @@ class ChangeDir(object):
 
 class OpenNoLock(object):
 
-    def __init__(self, fname, moveto=None):
-        self.fname = fname
+    def __init__(self, path, moveto=None):
+        self.path = path
         self.moveto = moveto
+        self.handle = None
 
     def __enter__(self):
-        self.fh = win32file.CreateFile(self.fname, win32file.GENERIC_READ,
-                                       win32file.FILE_SHARE_DELETE |
-                                       win32file.FILE_SHARE_READ |
-                                       win32file.FILE_SHARE_WRITE, None,
-                                       win32file.OPEN_EXISTING,
-                                       win32file.FILE_ATTRIBUTE_NORMAL, None)
+        return open(self)
+
+    def open(self):
+        self.handle = win32file.CreateFile(self.path, win32file.GENERIC_READ,
+                                           win32file.FILE_SHARE_DELETE |
+                                           win32file.FILE_SHARE_READ |
+                                           win32file.FILE_SHARE_WRITE, None,
+                                           win32file.OPEN_EXISTING,
+                                           win32file.FILE_ATTRIBUTE_NORMAL,
+                                           None)
         if self.moveto:
-            win32file.SetFilePointer(self.fh, self.moveto,
+            win32file.SetFilePointer(self.handle, self.moveto,
                                      win32file.FILE_BEGIN)
+        return self.handle
 
     def __exit__(self, _type, value, tb):
-        win32file.CloseHandle(self.fh)
+        self.close()
+
+    def __del__(self):
+        self.close()
+
+    def close(self):
+        if self.handle:
+            win32file.CloseHandle(self.handle)
+            self.handle = None
 
 
 def get_dump_fname(_tbname, _date=None):
