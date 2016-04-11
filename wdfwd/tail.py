@@ -8,12 +8,12 @@ from StringIO import StringIO
 import win32file
 from fluent.sender import FluentSender, MAX_SEND_FAIL
 
-from wdfwd.util import OpenNoLock
+from wdfwd.util import OpenNoLock, get_fileid
 
 MAX_READ_BUF = 100 * 100
 MAX_SEND_RETRY = 5
 SEND_TERM = 1       # 1 second
-UPDATE_TERM = 30    # 30 seconds
+UPDATE_TERM = 10    # 30 seconds
 MAX_PREV_DATA = 100 * 100
 
 
@@ -40,13 +40,13 @@ class TailThread(threading.Thread):
         self._exit = False
 
     def ldebug(self, tabfunc, msg=""):
-        _log(self.name, 'TailThread', 'debug', tabfunc, msg)
+        _log(self.name, self.tailer.sender, 'TailThread', 'debug', tabfunc, msg)
 
     def lwarning(self, tabfunc, msg=""):
-        _log(self.name, 'TailThread', 'warning', tabfunc, msg)
+        _log(self.name, self.tailer.sender, 'TailThread', 'warning', tabfunc, msg)
 
     def lerror(self, tabfunc, msg=""):
-        _log(self.name, 'TailThread', 'error', tabfunc, msg)
+        _log(self.name, self.tailer.sender, 'TailThread', 'error', tabfunc, msg)
 
     def update_target(self):
         try:
@@ -59,46 +59,61 @@ class TailThread(threading.Thread):
         self.update_target()
 
         while True:
-            time.sleep(0.5)
+            try:
+                if not self._run():
+                    break
+            except Exception, e:
+                self.lerror("run", str(e))
 
-            cur = time.time()
+    def _run(self):
+        time.sleep(1)
 
-            # send new lines when need
-            scnt = 0
-            netok = True
-            # self.ldebug("check send - {} {}".format(self.tailer.target,
-            #                                        cur-self.last_send))
-            if self.tailer.target:
-                if cur - self.last_send > self.send_term:
-                    try:
-                        scnt = self.tailer.chk_send_newlines()
-                    except Exception, e:
-                        # do not update last_send
-                        self.lerror("send error", str(e))
-                        netok = False
-                    else:
-                        self.last_send = cur
+        cur = time.time()
 
-            # if nothing sent with net ok, try update target timely
-            if scnt == 0 and netok:
-                if cur - self.last_update > self.update_term:
-                    self.last_update = cur
-                    self.update_target()
+        # send new lines when need
+        scnt = 0
+        netok = True
+        #self.ldebug("check send", "{} {}".format(self.tailer.target.path if
+                                                    #self.tailer.target else
+                                                    #"NoTarget",
+                                                    #cur-self.last_send))
+        if self.tailer.target:
+            if cur - self.last_send > self.send_term:
+                try:
+                    scnt = self.tailer.chk_send_newlines()
+                except Exception, e:
+                    # do not update last_send
+                    self.lerror("send error", str(e))
+                    netok = False
+                else:
+                    self.last_send = cur
 
-            if self._exit:
-                break
+        # if nothing sent with net ok, try update target timely
+        if scnt == 0 and netok:
+            if cur - self.last_update > self.update_term:
+                self.last_update = cur
+                self.update_target()
+
+        if self._exit:
+            return False
+        return True
 
     def exit(self):
         self.ldebug("exit")
         self._exit = True
 
 
-def _log(tname, cname, level, tabfunc, msg):
+def _log(tname, fsender, cname, level, tabfunc, _msg):
     lfun = getattr(logging, level)
     if type(tabfunc) == int:
-        lfun("  " * tabfunc + "<{}> {}".format(tname, msg))
+        msg = "  " * tabfunc + "<{}> {}".format(tname, _msg)
     else:
-        lfun("<{}> {}::{} - {}".format(tname, cname, tabfunc, msg))
+        msg = "<{}> {}::{} - {}".format(tname, cname, tabfunc, _msg)
+
+    lfun(msg)
+    if fsender:
+        ts = time.time()
+        fsender.emit_with_time("wdfwd.inner.{}".format(level), ts, msg)
 
 
 class FileTailer(object):
@@ -106,6 +121,7 @@ class FileTailer(object):
                  max_send_fail=MAX_SEND_FAIL, elatest=None, echo=False):
 
         self.trd_name = ""
+        self.sender = None
         self.ldebug("__init__", "max_send_fail: '{}'".format(max_send_fail))
         self.bdir = bdir
         self.ptrn = ptrn
@@ -120,17 +136,16 @@ class FileTailer(object):
         self.send_retry = 0
         self.elatest = elatest
         self._sent_pos = None
-        if echo:
-            self.echo_file = StringIO()
+        self.echo_file = StringIO() if echo else None
 
     def ldebug(self, tabfunc, msg=""):
-        _log(self.trd_name, 'FileTailer', 'debug', tabfunc, msg)
+        _log(self.trd_name, self.sender, 'FileTailer', 'debug', tabfunc, msg)
 
     def lwarning(self, tabfunc, msg=""):
-        _log(self.trd_name, 'FileTailer', 'warning', tabfunc, msg)
+        _log(self.trd_name, self.sender, 'FileTailer', 'warning', tabfunc, msg)
 
     def lerror(self, tabfunc, msg=""):
-        _log(self.trd_name, 'FileTailer', 'error', tabfunc, msg)
+        _log(self.trd_name, self.sender, 'FileTailer', 'error', tabfunc, msg)
 
     def raise_if_notarget(self):
         if self.target is None or self.target.handle is None:
@@ -141,17 +156,17 @@ class FileTailer(object):
         tag = ("debug." + self.trd_name) if self.trd_name else "debug"
         self.sender.emit_with_time(tag, ts, msg)
 
-    def get_fileid(self, fh):
-        info = win32file.GetFileInformationByHandle(fh)
-        return info[8:]
-
     def _chk_open_target(self, path):
         self.ldebug("_chk_open_target - {}".format(path))
         if self.target is None or self.target.path != path:
             # target is changed, reset per file cache
             self._reset_per_file_cache()
             self.target = OpenNoLock(path)
-            self.target.open()
+            self.target.ldebug = lambda tabfunc, msg: self.ldebug(tabfunc, msg)
+            try:
+                self.target.open()
+            except Exception, e:
+                self.lerror(1, str(e))
             return True
         return False
 
@@ -159,10 +174,44 @@ class FileTailer(object):
         self.ldebug("_reset_per_file_cache")
         self._sent_pos = None
 
+
+    def _update_elatest_target(self, files):
+        epath = os.path.join(self.bdir, self.elatest)
+        efid = None
+        if os.path.isfile(epath):
+            with OpenNoLock(epath) as fh:
+                efid = self.get_fileid(fh)
+
+        if self.elatest_fid is None:
+            if efid:
+                # new elatest
+                self.elatest_fid = efid
+                # reset sent_pos
+                self._save_sent_pos(epath, 0)
+                files.append(epath)
+        elif self.elatest_fid != efid:
+            ## elatest file has been rotated
+            oefid = self.elatest_fid
+            self.elatest_fid = None
+            # pre-elatest file should exist
+            assert len(files) > 0
+            pre_elatest = files[-1]
+            # save current sent pos to pre-latest's pos file
+            self._save_sent_pos(pre_elatest, self._sent_pos)
+
+            with OpenNoLock(pre_elatest) as fh:
+                pefid = self.get_fileid(fh)
+            # and, should equal to old elatest fid
+            assert pefid == oefid
+
+
     def update_target(self):
         self.ldebug("update_target")
 
         files = glob.glob(os.path.join(self.bdir, self.ptrn))
+
+        if self.elatest is not None:
+            self._update_elatest_target(files)
 
         cnt = len(files)
         newt = False
@@ -304,7 +353,10 @@ class FileTailer(object):
         # update cache
         self._sent_pos = pos
         # save pos file
-        tname = os.path.basename(self.target.path)
+        self._save_sent_pos(self.target.path, pos)
+
+    def _save_sent_pos(self, tpath, pos):
+        tname = os.path.basename(tpath)
         path = os.path.join(self.pdir, tname + '.pos')
         with open(path, 'w') as f:
             f.write("{}\n".format(pos))

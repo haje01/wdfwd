@@ -86,15 +86,22 @@ class ChangeDir(object):
         os.chdir(self.cwd)
 
 
+def get_fileid(fh):
+    info = win32file.GetFileInformationByHandle(fh)
+    return sum(info[8:])
+
+
 class OpenNoLock(object):
 
     def __init__(self, path, moveto=None):
         self.path = path
         self.moveto = moveto
         self.handle = None
+        self.fid = None
+        self.ldebug = None
 
     def __enter__(self):
-        return open(self)
+        return self.open()
 
     def open(self):
         self.handle = win32file.CreateFile(self.path, win32file.GENERIC_READ,
@@ -104,21 +111,27 @@ class OpenNoLock(object):
                                            win32file.OPEN_EXISTING,
                                            win32file.FILE_ATTRIBUTE_NORMAL,
                                            None)
+        self.ldebug("OpenNoLock", "open {}".format(self.handle))
         if self.moveto:
             win32file.SetFilePointer(self.handle, self.moveto,
                                      win32file.FILE_BEGIN)
+        self.fid = get_fileid(self.handle)
         return self.handle
 
     def __exit__(self, _type, value, tb):
+        self.ldebug("OpenNoLock", "__exit__")
         self.close()
 
     def __del__(self):
+        self.ldebug("OpenNoLock", "__del__")
         self.close()
 
     def close(self):
         if self.handle:
+            self.ldebug("OpenNoLock", "close {}".format(self.handle))
             win32file.CloseHandle(self.handle)
             self.handle = None
+            self.fid = None
 
 
 def get_dump_fname(_tbname, _date=None):
