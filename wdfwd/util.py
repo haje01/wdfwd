@@ -93,12 +93,9 @@ def get_fileid(fh):
 
 class OpenNoLock(object):
 
-    def __init__(self, path, moveto=None):
+    def __init__(self, path):
         self.path = path
-        self.moveto = moveto
         self.handle = None
-        self.fid = None
-        self.ldebug = None
 
     def __enter__(self):
         return self.open()
@@ -111,24 +108,16 @@ class OpenNoLock(object):
                                            win32file.OPEN_EXISTING,
                                            win32file.FILE_ATTRIBUTE_NORMAL,
                                            None)
-        self.ldebug("OpenNoLock", "open {}".format(self.handle))
-        if self.moveto:
-            win32file.SetFilePointer(self.handle, self.moveto,
-                                     win32file.FILE_BEGIN)
-        self.fid = get_fileid(self.handle)
         return self.handle
 
     def __exit__(self, _type, value, tb):
-        self.ldebug("OpenNoLock", "__exit__")
         self.close()
 
     def __del__(self):
-        self.ldebug("OpenNoLock", "__del__")
         self.close()
 
     def close(self):
         if self.handle:
-            self.ldebug("OpenNoLock", "close {}".format(self.handle))
             win32file.CloseHandle(self.handle)
             self.handle = None
             self.fid = None
