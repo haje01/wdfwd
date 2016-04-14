@@ -106,6 +106,7 @@ class FileTailer(object):
         self.elatest = elatest
         self.echo_file = StringIO() if echo else None
         self.elatest_fid = None
+        self.cache_sent_pos = {}
 
     def ldebug(self, tabfunc, msg=""):
         _log(self.sender, 'debug', tabfunc, msg)
@@ -384,6 +385,8 @@ class FileTailer(object):
 
     def get_sent_pos(self, epath=None):
         tpath = epath if epath else self.target_path
+        if tpath in self.cache_sent_pos:
+            return self.cache_sent_pos[tpath]
 
         ## this is new start
         self.ldebug("get_sent_pos", "updating for '{}'..".format(tpath))
@@ -403,6 +406,7 @@ class FileTailer(object):
             self.ldebug(1, "can't find pos file for {}, save as 0".format(tpath))
             self._save_sent_pos(tpath, 0)
 
+        self.cache_sent_pos[tpath] = pos
         return pos
 
 
@@ -419,3 +423,4 @@ class FileTailer(object):
         path = os.path.join(self.pdir, tname + '.pos')
         with open(path, 'w') as f:
             f.write("{}\n".format(pos))
+        self.cache_sent_pos[tpath] = pos
