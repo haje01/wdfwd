@@ -6,6 +6,7 @@ from subprocess import check_call as _check_call, CalledProcessError
 
 import win32file
 
+fsender = None
 
 def cap_call(cmd, retry=0, _raise=True, _test=False):
     logging.info('cap_call cmd: {}, retry: {}'.format(str(cmd), _raise))
@@ -146,3 +147,44 @@ def remove_file(fpath):
 
 def ensure_endsep(path):
     return path if path.endswith('/') else path + '/'
+
+
+def init_global_fsender(tag, host, port):
+    from fluent.sender import FluentSender
+
+    global fsender
+    if fsender is None:
+        fsender = FluentSender(tag, host, port)
+        linfo("init_global_fsender")
+
+def _log(level, msg):
+    lfun = getattr(logging, level)
+    lfun(msg)
+    if fsender:
+        ts = int(time.time())
+        fsender.emit_with_time(level, ts, msg)
+
+
+def ldebug(msg):
+    _log('debug', msg)
+
+
+def lerror(msg):
+    _log('error', msg)
+
+
+def linfo(msg):
+    _log('info', msg)
+
+
+def lwarning(msg):
+    _log('warning', msg)
+
+
+def lcritical(msg):
+    _log('critical', msg)
+
+
+def lheader(msg):
+    lcritical("============================== {} "
+              "==============================".format(msg))

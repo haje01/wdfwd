@@ -43,7 +43,7 @@ tailing:
         - file:
             dir: $WDFWD_DIR\wdfwd\tests\tlog
             pattern: tailtest_*-*-*.log
-            tag: wdfwd.tail
+            tag: wdfwd.tail1
         - file:
             dir: $WDFWD_DIR\wdfwd\tests\tlog
             pattern: tailtest2_*-*-*.log

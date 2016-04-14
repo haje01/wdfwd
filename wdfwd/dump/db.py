@@ -1,12 +1,12 @@
 import os
 import re
-import logging
 from datetime import datetime
 
 import yaml
 import pyodbc  # NOQA
 
-from wdfwd.util import get_dump_fname, normalize_date_str
+from wdfwd.util import get_dump_fname, normalize_date_str, ldebug, linfo,\
+    lwarning, lerror
 from wdfwd.get_config import get_config
 from wdfwd.const import TABLE_INFO_FILE
 
@@ -29,10 +29,10 @@ def _write_table_header(f, con, delim, tbinfo):
 
 
 def get_table_rowcnt(con, tbname):
-    logging.debug('get_table_rowcnt ' + tbname)
+    ldebug('get_table_rowcnt ' + tbname)
     if not con.sys_schema:
         tbname = tbname.split('.')[-1]
-    logging.debug('get_table_rowcnt')
+    ldebug('get_table_rowcnt')
     cmd = '''
 select i.rows
 from sysindexes i
@@ -102,7 +102,7 @@ class TableInfo(object):
         """Returns columns from the table."""
         if not con.sys_schema:
             tbname = self.name.split('.')[-1]
-        logging.debug('build_columns %s', tbname)
+        ldebug('build_columns %s', tbname)
         cols = []
         typs = []
         cmd = "SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='{}'"\
@@ -122,7 +122,7 @@ class TableInfo(object):
                 continue
             cols.append(col)
             typs.append(typ)
-            # logging.debug("col: {} [{}]".format(str(col), typ))
+            # ldebug("col: {} [{}]".format(str(col), typ))
         if len(cols) < totalcol:
             self.str_cols = ', '.join(cols)
         self.columns = cols
@@ -196,7 +196,7 @@ WHERE Session_id = @@SPID"""
 
     def __enter__(self):
         global pyodbc
-        logging.debug('db.Connector enter')
+        ldebug('db.Connector enter')
         acs = ''
         if self.trustcon:
             acs = 'Trusted_Connection=yes'
@@ -207,29 +207,27 @@ WHERE Session_id = @@SPID"""
         try:
             conn = pyodbc.connect(cs)
         except pyodbc.Error as e:
-            logging.error(e[1])
+            lerror(e[1])
             return
         else:
             self.conn = conn
             self.cursor = conn.cursor()
             self.cursor.execute("SET DATEFORMAT ymd")
             if self.read_uncommit:
-                logging.debug("set read uncommited")
-                logging.debug("  old isolation option: {}".
-                              format(self.txn_iso_level))
+                ldebug("set read uncommited")
+                ldebug("  old isolation option: {}".format(self.txn_iso_level))
                 cmd = "SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED"
                 self.cursor.execute(cmd)
-                logging.debug("  new isolation option: {}".
-                              format(self.txn_iso_level))
+                ldebug("  new isolation option: {}".format(self.txn_iso_level))
         return self
 
     def __exit__(self, _type, value, tb):
-        logging.debug('db.Connector exit')
+        ldebug('db.Connector exit')
         if self.cursor is not None:
-            logging.debug('cursor.close()')
+            ldebug('cursor.close()')
             self.cursor.close()
         if self.conn is not None:
-            logging.debug('conn.close()')
+            ldebug('conn.close()')
             self.conn.close()
 
 
@@ -237,21 +235,21 @@ def execute(con, cmd):
     try:
         con.cursor.execute(cmd)
     except pyodbc.ProgrammingError as e:
-        logging.error(str(e[1]))
+        lerror(str(e[1]))
 
 
 def table_array(con, prefix):
     # wild schema for table select
     if not con.sys_schema:
         prefix = '%' + prefix.split('.')[-1]
-    logging.debug('table_array')
+    ldebug('table_array')
     """Return table name array by matching prefix."""
     cmd = "SELECT NAME FROM SYS.TABLES WHERE NAME"\
           " LIKE '%s%%'" % prefix
     execute(con, cmd)
-    logging.debug('cmd: ' + cmd)
+    ldebug('cmd: ' + cmd)
     rows = con.cursor.fetchall()
-    logging.debug('rowcnt: %d', len(rows))
+    ldebug('rowcnt: %d', len(rows))
     res = []
     if rows is not None:
         res = sorted([row[0] for row in rows])
@@ -260,13 +258,13 @@ def table_array(con, prefix):
 
 def table_rows(con, tbinfo, date=None, max_fetch=None):
     """Returns all rows from the table."""
-    logging.debug('table_rows')
+    ldebug('table_rows')
     if date is None:
         cmd = "SELECT {} FROM {}".format(tbinfo.str_cols, tbinfo)
     else:
         cmd = "SELECT {} FROM {} WHERE CAST(LogTime AS DATE)"\
             " = CAST('{}' as DATETIME);".format(tbinfo.str_cols, tbinfo, date)
-    logging.debug('cmd: ' + cmd)
+    ldebug('cmd: ' + cmd)
     execute(con, cmd)
     fetch_cnt = 0
     while True:
@@ -299,7 +297,7 @@ def _warm_converter(con, decode_map, tbinfo):
 
 
 def collect_dates(con, skip_last_subtable=None):
-    logging.debug('collect_dates')
+    ldebug('collect_dates')
     if skip_last_subtable is None:
         skip_last_subtable = con.skip_last
     tables = tables_by_names(con, skip_last_subtable)
@@ -313,7 +311,7 @@ def _collect_dates(con, tables):
         if date is not None:
             dates.add(date)
     if len(dates) == 0:
-        logging.warning("No dates from tables: " + str(tables))
+        lwarning("No dates from tables: " + str(tables))
     return sorted(dates)
 
 
@@ -337,7 +335,7 @@ def get_table_date(con, tbname):
 
 def _dump_table(dcfg, decode_map, con, tbinfo, date, max_fetch):
     """Dump (sub)tables to files and returns table name."""
-    logging.info("dump subtable: %s", tbinfo)
+    linfo("dump subtable: %s", tbinfo)
     folder = dcfg['folder']
     path = os.path.join(folder, get_dump_fname(tbinfo, date))
 
@@ -356,10 +354,10 @@ def _dump_table(dcfg, decode_map, con, tbinfo, date, max_fetch):
                     try:
                         cr = _row_as_strings(row, tbinfo)
                     except UnicodeDecodeError:
-                        logging.error("UnicodeDecodeError for %s row %d" %
-                                      (tbinfo, i))
+                        lerror("UnicodeDecodeError for %s row %d" % (tbinfo,
+                                                                     i))
                         global conv_map
-                        logging.error(str(conv_map[tbinfo]))
+                        lerror(str(conv_map[tbinfo]))
                     else:
                         f.write(delim.join(cr))
                         f.write('\n')
@@ -370,18 +368,18 @@ def _dump_table(dcfg, decode_map, con, tbinfo, date, max_fetch):
 
 
 def dump_table_rows_by_date(dcfg, con, tbname, date, max_fetch=None):
-    logging.info("dump_table_rows_by_date {} {}".format(tbname, date))
+    linfo("dump_table_rows_by_date {} {}".format(tbname, date))
     decode_map = _make_decode_map(dcfg)
     dumped = _dump_table(dcfg, decode_map, con, tbname, date, max_fetch)
     return dumped, date
 
 
 def dump_tables(dcfg, con, tables, max_fetch=None):
-    logging.info("dump_tables")
+    linfo("dump_tables")
     dumped_tables = []
     decode_map = _make_decode_map(dcfg)
     for tbinfo in tables:
-        logging.info("dump table: %s", tbinfo)
+        linfo("dump table: %s", tbinfo)
         dumped = _dump_table(dcfg, decode_map, con, tbinfo, None, max_fetch)
         if dumped is not None:
             dumped_tables.append(dumped)
@@ -409,7 +407,7 @@ def _escape_underscore(names):
 
 
 def tables_by_names(con, skip_last_subtable=None):
-    logging.debug('tables_by_names')
+    ldebug('tables_by_names')
     if skip_last_subtable is None:
         skip_last_subtable = con.skip_last
     tables = []
@@ -417,15 +415,15 @@ def tables_by_names(con, skip_last_subtable=None):
     counts = {}
     for tbname in tbnames:
         subtables = table_array(con, tbname)
-        # logging.debug('subtables: ' + str(subtables))
+        # ldebug('subtables: ' + str(subtables))
         counts[tbname] = len(subtables)
         if skip_last_subtable and len(subtables) > 1:
             # skip last subtable which might be using now.
-            logging.debug('skip last table')
+            ldebug('skip last table')
             subtables = subtables[:-1]
         tables += subtables
     if len(set(counts.values())) > 1:
-        logging.warning("Sub-table length mismatch! " + str(counts))
+        lwarning("Sub-table length mismatch! " + str(counts))
     return tables
 
 
@@ -440,13 +438,13 @@ def read_table_info(dcfg):
 
 
 def daily_tables_by_change(dcfg, con, skip_last_subtable=None):
-    logging.debug("daily_tables_by_change")
+    ldebug("daily_tables_by_change")
     if skip_last_subtable is None:
         skip_last_subtable = con.skip_last
     dates = collect_dates(con, skip_last_subtable)
-    # logging.debug("dates: " + str(dates))
+    # ldebug("dates: " + str(dates))
     daily_tables = daily_tables_from_dates(con, dates)
-    # logging.debug("daily_tables: " + str(daily_tables))
+    # ldebug("daily_tables: " + str(daily_tables))
     res, rpath = read_table_info(dcfg)
     if res is None:
         return daily_tables
@@ -456,13 +454,13 @@ def daily_tables_by_change(dcfg, con, skip_last_subtable=None):
         for table in tables:
             oldcnt = res.get(str(table), -1)
             curcnt = get_table_rowcnt(con, table)
-            logging.debug(
+            ldebug(
                 "check row cnt for '%s' %d - %d",
                 table,
                 oldcnt,
                 curcnt)
             if oldcnt != curcnt:
-                logging.debug('append')
+                ldebug('append')
                 tmp.append(table)
         if tmp:
             changed_daily_tables.append(tmp)
@@ -482,7 +480,7 @@ def daily_tables_from_dates(con, dates):
 
 
 def write_table_info(dcfg, dumped_tables):
-    logging.info('write_table_info')
+    linfo('write_table_info')
     prev, rpath = read_table_info(dcfg)
     result = {}
     if prev is not None:
@@ -500,14 +498,14 @@ def write_table_info(dcfg, dumped_tables):
                 cnt = get_table_rowcnt(con, table)
             result[str(table)] = cnt
 
-    logging.info('writing %s', rpath)
+    linfo('writing %s', rpath)
     with open(rpath, 'w') as f:
         f.write(yaml.dump(result, default_flow_style=False))
     return rpath
 
 
 def table_rowcnt_by_date(con, tbname, date):
-    logging.debug("table_rowcnt_by_date {} of {}".format(tbname, date))
+    ldebug("table_rowcnt_by_date {} of {}".format(tbname, date))
     cmd = "SELECT COUNT(*) FROM {} WHERE CAST(LogTime as DATE)"\
         " = CAST('{}' as DATETIME);".format(tbname, date)
     execute(con, cmd)
@@ -537,7 +535,7 @@ def get_data_dates(con, skip_last_date=None):
 
 
 def updated_day_tables(dcfg, con, date):
-    logging.debug("updated_day_tables {}".format(date))
+    ldebug("updated_day_tables {}".format(date))
     res, rpath = read_table_info(dcfg)
     tbnames = con.table_names
     for tbname in tbnames:

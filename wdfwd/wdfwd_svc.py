@@ -1,5 +1,3 @@
-import logging
-
 import win32service  # NOQA
 import win32serviceutil  # NOQA
 import win32event  # NOQA
@@ -8,11 +6,19 @@ import servicemanager  # NOQA
 from wdfwd import app
 from wdfwd.get_config import get_config
 from wdfwd import util
+from wdfwd.util import ldebug, lheader, init_global_fsender
 from wdfwd.const import SVC_SLEEP_SEC
 
 
 cfg = get_config()
 scfg = cfg['app']['service']
+lcfg = cfg['log']
+
+
+if 'fluent' in lcfg:
+    fhost = lcfg['fluent'][0]
+    fport = lcfg['fluent'][1]
+    init_global_fsender('wdfwd.main', fhost, fport)
 
 
 class WdFwdService(win32serviceutil.ServiceFramework):
@@ -20,14 +26,14 @@ class WdFwdService(win32serviceutil.ServiceFramework):
     _svc_display_name_ = scfg['caption']
 
     def __init__(self, args):
-        logging.debug("__init__ " + str(args))
+        ldebug("__init__ " + str(args))
         win32serviceutil.ServiceFramework.__init__(self, args)
         self.haltEvent = win32event.CreateEvent(None, 0, 0, None)
-        util.log_head("Service Start")
+        lheader("Service Start")
 
     def SvcStop(self):
         servicemanager.LogInfoMsg("Service is stopping.")
-        util.log_head("Stopping")
+        lheader("Stopping")
         self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
         win32event.SetEvent(self.haltEvent)
         self.ReportServiceStatus(win32service.SERVICE_STOPPED)
@@ -50,7 +56,7 @@ class WdFwdService(win32serviceutil.ServiceFramework):
         app.stop_tailing()
 
         servicemanager.LogInfoMsg("Service is finished.")
-        util.log_head("Service Finish")
+        lheader("Service Finish")
 
 
 if __name__ == '__main__':
