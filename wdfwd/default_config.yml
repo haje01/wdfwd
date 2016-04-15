@@ -39,6 +39,11 @@ tailing:
             dir: # LOG-FILE-FOLDER-TO-TAIL ex) C:\MyApp\tlog
             pattern: # LOG-FILE-PATTERN ex) log_*-*-*.log
             tag: # FLUENT-TAG  ex) wdfwd.myapp.tlog
+        - file:
+            dir: # LOG-FILE-FOLDER-TO-TAIL ex) C:\MyApp\tlog
+            latest: # specific latest file
+            pattern: # LOG-FILE-PATTERN ex) log2_*-*-*.log
+            tag: # FLUENT-TAG  ex) wdfwd.myapp.tlog2
     to:
         fluent: # FLUENT-SERVER-IP-AND-PORT ex) ['localhost', 24224]
 

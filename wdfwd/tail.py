@@ -4,6 +4,7 @@ import time
 import threading
 import logging
 from StringIO import StringIO
+import traceback
 
 import win32file, pywintypes
 from fluent.sender import FluentSender, MAX_SEND_FAIL
@@ -59,6 +60,7 @@ class TailThread(threading.Thread):
                     break
             except Exception, e:
                 self.lerror("run", str(e))
+                self.lerror(traceback.format_exc())
 
     def exit(self):
         self.ldebug("exit")
@@ -149,7 +151,7 @@ class FileTailer(object):
         sent_line = 0
         netok = True
         #self.ldebug("check send", "{} {}".format(self.target_path if
-                                                    #self.target else
+                                                    #self.target_path else
                                                     #"NoTarget",
                                                     #cur-self.last_send_try))
         # handle if elatest file has been rotated
@@ -194,33 +196,13 @@ class FileTailer(object):
                 self.elatest_fid = efid
                 files.append(epath)
 
-        #elif self.elatest_fid != efid:
-            #self.ldebug("elatest file rotation found")
-            #oefid = self.elatest_fid
-            #self.elatest_fid = None
-            ## pre-elatest file should exist
-            #if len(files) == 0:
-                #self.lerror(1, "pre-elatest files are not exist!")
-                #return
-
-            #pre_elatest = files[-1]
-            ## save old elatest sent pos as pre-latest's pos file
-            #self.ldebug("'{}' rotated as '{}'".format(epath, pre_elatest))
-            #self._save_sent_pos(pre_elatest, self.get_sent_pos(epath, oefid))
-
-            #with OpenNoLock(pre_elatest) as fh:
-                #pefid = get_fileid(fh)
-            ## and, should equal to old elatest fid
-            #if pefid != oefid:
-                #self.lerror(1, "pre-elatest fileid not equal to old elatest"
-                            #" fileid!")
     def handle_file_recreate(self, cur=None):
         ret = 0
         if self.target_path:
             if not os.path.isfile(self.target_path):
                 self.lwarning("handle_file_recreate",
                               "target file '{}' has been removed, but new"
-                              " file not created yet".format(self.target))
+                              " file not created yet".format(self.target_path))
                 ret = 1
             else:
                 with OpenNoLock(self.target_path) as fh:
@@ -248,7 +230,6 @@ class FileTailer(object):
         #  if elatest file has been changed
         if self.elatest_fid and efid != self.elatest_fid:
             oefid = self.elatest_fid
-            self.elatest_fid = None
             if not epath:
                 self.lwarning("handle_elatest_rotation",
                               "elatest file has been rotated, but new"
@@ -258,6 +239,7 @@ class FileTailer(object):
                               "elatest file has been rotated({} -> {})."
                               " update_target "
                               "immediately.".format(self.elatest_fid, efid))
+            self.elatest_fid = None
             files = glob.glob(os.path.join(self.bdir, self.ptrn))
             # pre-elatest file should exist
             if len(files) == 0:
@@ -350,6 +332,7 @@ class FileTailer(object):
 
     def _clamp_sent_pos(self, file_pos, sent_pos):
         # skip previous data, if data to send is too large
+        self.ldebug("_clamp_sent_pos")
         bytes_to_send = file_pos - sent_pos
         if bytes_to_send > MAX_PREV_DATA:
             self.ldebug(1, "skip previous data since {} > "
@@ -438,7 +421,6 @@ class FileTailer(object):
         if os.path.isfile(ppath):
             with open(ppath, 'r') as f:
                 line = f.readline()
-                self.ldebug(2, line)
                 elm = line.split(',')
                 pos = int(elm[0])
             self.ldebug(1, "found pos file - {}: {}".format(ppath, pos))
