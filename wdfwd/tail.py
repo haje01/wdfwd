@@ -44,7 +44,6 @@ class TailThread(threading.Thread):
         _log(self.tailer.sender, 'error', tabfunc, msg)
 
     def run(self):
-        self.ldebug("run", "starts")
         try:
             self.tailer.update_target()
         except NoCandidateFile:
@@ -52,7 +51,7 @@ class TailThread(threading.Thread):
 
         while True:
             try:
-                time.sleep(0.5)
+                time.sleep(1)
 
                 self.tailer.tmain()
 
@@ -92,7 +91,7 @@ class FileTailer(object):
         self.ptrn = ptrn
         # self.rx = re.compile(ptrn)
         self.tag = tag
-        self.target_path = None
+        self.target_path = self.target_fid = None
         self.send_term = send_term
         self.last_send_try = 0
         self.update_term = update_term
@@ -134,10 +133,10 @@ class FileTailer(object):
             except pywintypes.error, e:
                 if e[0] == 2 and e[1] == 'CreateFile':
                     # file has been deleted
-                    self.lerror("_run", "file '{}' might have been "
-                                "deleted. will find new "
+                    self.lerror("_run", "file '{}' might have been deleted. "
+                                "will find new "
                                 "target..".format(self.target_path))
-                    self.target_path = None
+                    self.set_target(None)
                 else:
                     self.lerror("send error", str(e))
                     netok = False
@@ -149,14 +148,17 @@ class FileTailer(object):
         # send new lines when need
         sent_line = 0
         netok = True
-        #self.ldebug("check send", "{} {}".format(self.target.path if
+        #self.ldebug("check send", "{} {}".format(self.target_path if
                                                     #self.target else
                                                     #"NoTarget",
                                                     #cur-self.last_send_try))
         # handle if elatest file has been rotated
         latest_rot = False
-        if self.elatest:
+        if not self.elatest:
+            latest_rot = self.handle_file_recreate(cur)
+        else:
             latest_rot = self.handle_elatest_rotation(cur)
+
         psent_pos = self.get_sent_pos() if self.target_path else None
 
         if self.target_path:
@@ -170,7 +172,16 @@ class FileTailer(object):
 
     def set_target(self, target):
         changed = self.target_path != target
-        self.target_path = target
+        if changed:
+            self.target_path = target
+            self.target_fid = None
+            if target:
+                if os.path.isfile(target):
+                    with OpenNoLock(target) as fh:
+                        self.target_fid = get_fileid(fh)
+                else:
+                    self.lerror("set_target", "target file '{}' not "
+                                "exists".format(target))
         return changed
 
     def _update_elatest_target(self, files):
@@ -203,6 +214,28 @@ class FileTailer(object):
             #if pefid != oefid:
                 #self.lerror(1, "pre-elatest fileid not equal to old elatest"
                             #" fileid!")
+    def handle_file_recreate(self, cur=None):
+        ret = 0
+        if self.target_path:
+            if not os.path.isfile(self.target_path):
+                self.lwarning("handle_file_recreate",
+                              "target file '{}' has been removed, but new"
+                              " file not created yet".format(self.target))
+                ret = 1
+            else:
+                with OpenNoLock(self.target_path) as fh:
+                    fid = get_fileid(fh)
+                if self.target_fid and fid != self.target_fid:
+                    self.lwarning("handle_file_recreate",
+                                  "target file '{}' has been "
+                                  "recreated".format(self.target_path))
+                    ret = 2
+
+        if ret > 0:
+            self.ldebug(1, "reset target to delegate update_target")
+            self.save_sent_pos(0)
+            self.set_target(None)
+        return ret
 
     def handle_elatest_rotation(self, cur=None):
         cur = cur if cur else int(time.time())
@@ -217,12 +250,14 @@ class FileTailer(object):
             oefid = self.elatest_fid
             self.elatest_fid = None
             if not epath:
-                self.ldebug(1, "elatest file has been rotated, but new elatest"
-                            " file not created yed.")
+                self.lwarning("handle_elatest_rotation",
+                              "elatest file has been rotated, but new"
+                              " elatest file not created yed.")
             else:
-                self.ldebug(1, "elatest file has been rotated({} -> {})."
-                            " update_target "
-                            "immediately.".format(self.elatest_fid, efid))
+                self.lwarning("handle_elatest_rotation",
+                              "elatest file has been rotated({} -> {})."
+                              " update_target "
+                              "immediately.".format(self.elatest_fid, efid))
             files = glob.glob(os.path.join(self.bdir, self.ptrn))
             # pre-elatest file should exist
             if len(files) == 0:
@@ -231,8 +266,10 @@ class FileTailer(object):
 
             pre_elatest = files[-1]
             if epath:
+                self.ldebug(1, "move sent pos & clear elatest sent pos")
                 # even elatest file not exist, there might be pos file
                 self._save_sent_pos(pre_elatest, self.get_sent_pos(epath))
+                # reset elatest sent_pos
                 self._save_sent_pos(epath, 0)
             self.last_update = cur
             self.set_target(pre_elatest)
@@ -257,7 +294,7 @@ class FileTailer(object):
             if cnt == 1:
                 tpath = os.path.join(self.bdir, files[0])
             else:
-                tpath = files[-1]
+                tpath = os.path.join(self.bdir, files[-1])
             newt = self.set_target(tpath)
 
         if newt:
@@ -273,13 +310,14 @@ class FileTailer(object):
             tpath = self.target_path
         else:
             tpath = path
-        self.ldebug("get_file_pos", "for {}".format(tpath))
+        # self.ldebug("get_file_pos", "for {}".format(tpath))
         try:
             with OpenNoLock(tpath) as fh:
                 return win32file.GetFileSize(fh)
         except pywintypes.error, e:
             self.lerror("get_file_pos", "{} - {}".\
-                        format(tpath, e[2].decode('cp949').encode('utf8')))
+                        format(e[2].decode('cp949').encode('utf8'), tpath))
+            raise
 
     def _read_target_to_end(self, fh):
         self.raise_if_notarget()
@@ -326,12 +364,15 @@ class FileTailer(object):
     def may_send_newlines(self):
         self.raise_if_notarget()
 
-        self.ldebug("may_send_newlines")
+        # self.ldebug("may_send_newlines")
 
         # skip if no newlines
         file_pos = self.get_file_pos()
         sent_pos = self.get_sent_pos()
         if sent_pos >= file_pos:
+            if sent_pos > file_pos:
+                self.lerror("sent_pos {} > file_pos {}. cache"
+                            " bug?".format(sent_pos, file_pos))
             return 0
 
         sent_pos = self._clamp_sent_pos(file_pos, sent_pos)
@@ -351,11 +392,10 @@ class FileTailer(object):
 
         # save sent pos
         self.save_sent_pos(sent_pos + rbytes)
-        # self.ldebug("may_send_newlines", "done")
         return scnt
 
     def _may_send_newlines(self, lines, rbytes, scnt):
-        self.ldebug("may_send_newlines", "sending {} bytes..".format(rbytes))
+        self.ldebug("_may_send_newlines", "sending {} bytes..".format(rbytes))
         try:
             for line in lines.splitlines():
                 if len(line) == 0:
@@ -405,7 +445,6 @@ class FileTailer(object):
         else:
             self.ldebug(1, "can't find pos file for {}, save as 0".format(tpath))
             self._save_sent_pos(tpath, 0)
-
         self.cache_sent_pos[tpath] = pos
         return pos
 

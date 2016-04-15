@@ -59,7 +59,7 @@ def start_tailing():
             name = "tail{}".format(i+1)
             tailer.trd_name = name
             ldebug("create & start {} thread".format(name))
-            trd = TailThread(name, tailer, send_term, update_term)
+            trd = TailThread(name, tailer)
             tail_threads.append(trd)
             trd.start()
 
@@ -125,7 +125,7 @@ def _sync_log(lcfg):
 def _sync_folder(scfg):
     folder = scfg['folder']
     to_url = scfg['to_url']
-    ldebug("Sync folders", folder)
+    ldebug("Sync folders: " + folder)
     sync_folder(folder, to_url)
 
 
@@ -134,7 +134,7 @@ def _sync_files(scfg):
     recurse = scfg['recurse']
     ptrn = scfg['filename_pattern']
     to_url = scfg['to_url']
-    ldebug("Sync files", bfolder, ptrn, recurse)
+    ldebug("Sync files: {} {} {}".format(bfolder, ptrn, recurse))
     files = find_file_by_ptrn(bfolder, ptrn, recurse)
     sync_files(bfolder, files, to_url)
 
@@ -142,7 +142,7 @@ def _sync_files(scfg):
 def _sync_file(scfg):
     path = scfg['filepath']
     to_url = scfg['to_url']
-    ldebug("Sync single file", path, to_url)
+    ldebug("Sync single file: {} {}".format(path, to_url))
     sync_file(path, to_url)
 
 
