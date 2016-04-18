@@ -30,7 +30,7 @@ log:
             maxBytes: 10485760
             backupCount: 10
     root:
-        level: DEBUG
+        level: ERROR
         handlers: [console, file]
     to_url: $WDFWD_DEST/test  # URL for log file sync
 

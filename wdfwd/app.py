@@ -6,8 +6,6 @@ import traceback
 from croniter import croniter
 
 from wdfwd.get_config import get_config
-from wdfwd.dump import check_dump_db_and_sync
-from wdfwd.sync import sync_folder, sync_file, sync_files, find_file_by_ptrn
 from wdfwd.tail import FileTailer, TailThread, SEND_TERM, UPDATE_TERM
 from wdfwd.util import ldebug, linfo, lerror
 
@@ -17,9 +15,9 @@ appc = cfg['app']
 tailc = cfg.get('tailing', None)
 
 start_dt = datetime.now()
-schedule = appc['service']['schedule']
-cit = croniter(schedule, start_dt)
-next_dt = cit.get_next(datetime)
+schedule = appc['service'].get('schedule', None)
+cit = croniter(schedule, start_dt) if schedule else None
+next_dt = cit.get_next(datetime) if cit else None
 logcnt = 0
 LOG_SYNC_CNT = 30
 
@@ -32,13 +30,31 @@ fsender = None
 def start_tailing():
     ldebug("start_tailing")
     if not tailc:
+        ldebug("no tailing config. return")
         return
-    pos_dir = tailc['pos_dir']
+
+    file_enc = tailc.get('file_encoding', None)
+    pos_dir = tailc.get('pos_dir', None)
+    if not pos_dir:
+        lerror("no position dir info. return")
+        return
+    max_between_data = tailc.get('max_between_data', None)
     afrom = tailc['from']
-    fluent = tailc['to']['fluent']
-    # override cfg for test
-    fluent_ip = os.environ.get('WDFWD_TEST_FLUENT_IP', fluent[0])
-    fluent_port = int(os.environ.get('WDFWD_TEST_FLUENT_PORT', fluent[1]))
+    fluent = tailc['to'].get('fluent', None)
+    if not fluent:
+        lerror("no fluent server info. return")
+        return
+    else:
+        # override cfg for test
+        fluent_ip = os.environ.get('WDFWD_TEST_FLUENT_IP', fluent[0])
+        fluent_port = int(os.environ.get('WDFWD_TEST_FLUENT_PORT', fluent[1]))
+        ldebug("pos_dir {}, fluent_ip {}, fluent_port {}".format(pos_dir,
+                                                                 fluent_ip,
+                                                                 fluent_port))
+
+    if len(afrom) == 0:
+        ldebug("no source info. return")
+        return
 
     for i, src in enumerate(afrom):
         cmd = src.keys()[0]
@@ -55,7 +71,9 @@ def start_tailing():
                           "'{}'".format(bdir, ptrn, tag, pos_dir, fluent,
                                         latest))
             tailer = FileTailer(bdir, ptrn, tag, pos_dir, fluent_ip,
-                                fluent_port, max_send_fail=0, elatest=latest)
+                                fluent_port, max_send_fail=0, elatest=latest,
+                                encoding=file_enc,
+                                max_between_data=max_between_data)
             name = "tail{}".format(i+1)
             tailer.trd_name = name
             ldebug("create & start {} thread".format(name))
@@ -75,6 +93,11 @@ def run_scheduled():
     """Run application main."""
 
     global next_dt, force_first_run
+    if not next_dt:
+        return
+
+    ldebug("run_scheduled {}".format(next_dt))
+
     linfo("{} run {}".format(appc['service']['name'], time.time()))
     now = datetime.now()
     ldebug('start_dt: ' + str(start_dt))
@@ -126,6 +149,7 @@ def _sync_folder(scfg):
     folder = scfg['folder']
     to_url = scfg['to_url']
     ldebug("Sync folders: " + folder)
+    from wdfwd.sync import sync_folder
     sync_folder(folder, to_url)
 
 
@@ -135,7 +159,9 @@ def _sync_files(scfg):
     ptrn = scfg['filename_pattern']
     to_url = scfg['to_url']
     ldebug("Sync files: {} {} {}".format(bfolder, ptrn, recurse))
+    from wdfwd.sync import find_file_by_ptrn
     files = find_file_by_ptrn(bfolder, ptrn, recurse)
+    from wdfwd.sync import sync_files
     sync_files(bfolder, files, to_url)
 
 
@@ -143,6 +169,7 @@ def _sync_file(scfg):
     path = scfg['filepath']
     to_url = scfg['to_url']
     ldebug("Sync single file: {} {}".format(path, to_url))
+    from wdfwd.sync import sync_file
     sync_file(path, to_url)
 
 
@@ -165,5 +192,6 @@ def _run_tasks(tasks):
             scfg = task['sync_db_dump']
             if 'db' in scfg:
                 # dump db
+                from wdfwd.dump import check_dump_db_and_sync
                 check_dump_db_and_sync(scfg)
         ldebug("elapsed: {}".format(time.time() - st))

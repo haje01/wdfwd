@@ -30,9 +30,12 @@ log:
         level: DEBUG
         handlers: [file]
     to_url: # RSYNC-SERVER-URL-FOR-LOG ex) rsync-user@myserver.net::rsync-backup/myprj
+    fluent: # FLUENT-SERVER-IP-AND-PORT ex) ['localhost', 24224]
 
 
 tailing:
+    max_between_data: # skip between data larger than this size ex) 10000
+    file_encoding: # target file encoding  ex) cp949
     pos_dir: # TAIL-POS-FOLDER-PATH ex) C:\wdfwd-temp
     from:
         - file:

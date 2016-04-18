@@ -9,20 +9,16 @@ import traceback
 import win32file, pywintypes
 from fluent.sender import FluentSender, MAX_SEND_FAIL
 
-from wdfwd.util import OpenNoLock, get_fileid
+from wdfwd.util import OpenNoLock, get_fileid, escape_path
 
 MAX_READ_BUF = 100 * 100
 MAX_SEND_RETRY = 5
 SEND_TERM = 1       # 1 second
 UPDATE_TERM = 10    # 30 seconds
-MAX_PREV_DATA = 100 * 100
+MAX_BETWEEN_DATA = 100 * 100
 
 
 class NoTargetFile(Exception):
-    pass
-
-
-class NoCandidateFile(Exception):
     pass
 
 
@@ -45,10 +41,7 @@ class TailThread(threading.Thread):
         _log(self.tailer.sender, 'error', tabfunc, msg)
 
     def run(self):
-        try:
-            self.tailer.update_target()
-        except NoCandidateFile:
-            pass
+        self.tailer.update_target()
 
         while True:
             try:
@@ -58,9 +51,13 @@ class TailThread(threading.Thread):
 
                 if self._exit:
                     break
+            except NoTargetFile:
+                self.lwarning("run", "NoTargetfile")
             except Exception, e:
-                self.lerror("run", str(e))
-                self.lerror(traceback.format_exc())
+                self.ldebug("run", str(e))
+                tb = traceback.format_exc()
+                for line in tb.splitlines():
+                    self.lerror(line)
 
     def exit(self):
         self.ldebug("exit")
@@ -68,11 +65,17 @@ class TailThread(threading.Thread):
 
 
 def _log(fsender, level, tabfunc, _msg):
+    if logging.getLogger().getEffectiveLevel() > getattr(logging,
+                                                         level.upper()):
+        return
+
     lfun = getattr(logging, level)
     if type(tabfunc) == int:
         msg = "  " * tabfunc + "{}".format(_msg)
-    else:
+    elif len(_msg) > 0:
         msg = "{} - {}".format(tabfunc, _msg)
+    else:
+        msg = "{}".format(tabfunc)
 
     lfun(msg)
     if fsender:
@@ -84,7 +87,7 @@ class FileTailer(object):
     def __init__(self, bdir, ptrn, tag, pdir, fhost, fport,
                  send_term=SEND_TERM, update_term=UPDATE_TERM,
                  max_send_fail=MAX_SEND_FAIL, elatest=None,
-                 echo=False):
+                 echo=False, encoding=None, max_between_data=None):
 
         self.trd_name = ""
         self.sender = None
@@ -108,6 +111,8 @@ class FileTailer(object):
         self.echo_file = StringIO() if echo else None
         self.elatest_fid = None
         self.cache_sent_pos = {}
+        self.encoding = encoding
+        self.max_between_data = max_between_data if max_between_data else MAX_BETWEEN_DATA
 
     def ldebug(self, tabfunc, msg=""):
         _log(self.sender, 'debug', tabfunc, msg)
@@ -271,7 +276,7 @@ class FileTailer(object):
         newt = False
         if cnt == 0:
             self.set_target(None)
-            raise NoCandidateFile()
+            self.lwarning(1, "NoCandidateFile")
         else:
             if cnt == 1:
                 tpath = os.path.join(self.bdir, files[0])
@@ -297,9 +302,15 @@ class FileTailer(object):
             with OpenNoLock(tpath) as fh:
                 return win32file.GetFileSize(fh)
         except pywintypes.error, e:
-            self.lerror("get_file_pos", "{} - {}".\
-                        format(e[2].decode('cp949').encode('utf8'), tpath))
+            err = self.convert_msg(e[2])
+            self.lerror("get_file_pos", "{} - {}".format(err, tpath))
             raise
+
+    def convert_msg(self, msg):
+        if self.encoding:
+            return msg.decode(self.encoding).encode('utf8')
+        else:
+            return msg
 
     def _read_target_to_end(self, fh):
         self.raise_if_notarget()
@@ -334,13 +345,13 @@ class FileTailer(object):
         # skip previous data, if data to send is too large
         self.ldebug("_clamp_sent_pos")
         bytes_to_send = file_pos - sent_pos
-        if bytes_to_send > MAX_PREV_DATA:
+        if bytes_to_send > self.max_between_data:
             self.ldebug(1, "skip previous data since {} > "
-                        "{}".format(bytes_to_send, MAX_PREV_DATA))
+                        "{}".format(bytes_to_send, self.max_between_data))
             sent_pos = file_pos
         else:
             self.ldebug(1, "will send previous data since {} < "
-                        "{}".format(bytes_to_send, MAX_PREV_DATA))
+                        "{}".format(bytes_to_send, self.max_between_data))
         self.ldebug(1, "sent_pos: {}".format(sent_pos))
         return sent_pos
 
@@ -384,6 +395,7 @@ class FileTailer(object):
                 if len(line) == 0:
                     continue
                 ts = int(time.time())
+                line = self.convert_msg(line)
                 self.sender.emit_with_time("data", ts, line)
                 self.may_echo(ts, line)
                 scnt += 1
@@ -415,7 +427,7 @@ class FileTailer(object):
         self.ldebug("get_sent_pos", "updating for '{}'..".format(tpath))
         # try to read position file
         # which is needed to continue send after temporal restart
-        tname = os.path.basename(tpath)
+        tname = escape_path(tpath)
         ppath = os.path.join(self.pdir, tname + '.pos')
         pos = 0
         if os.path.isfile(ppath):
@@ -425,8 +437,10 @@ class FileTailer(object):
                 pos = int(elm[0])
             self.ldebug(1, "found pos file - {}: {}".format(ppath, pos))
         else:
-            self.ldebug(1, "can't find pos file for {}, save as 0".format(tpath))
-            self._save_sent_pos(tpath, 0)
+            pos = self.get_file_pos(tpath)
+            self.ldebug(1, "can't find pos file for {}, save as current file"
+                        " pos {}".format(tpath, pos))
+            self._save_sent_pos(tpath, pos)
         self.cache_sent_pos[tpath] = pos
         return pos
 
@@ -439,8 +453,8 @@ class FileTailer(object):
         self._save_sent_pos(self.target_path, pos)
 
     def _save_sent_pos(self, tpath, pos):
-        self.ldebug(1, "_save_sent_pos {} - {}".format(tpath, pos))
-        tname = os.path.basename(tpath)
+        self.ldebug(1, "_save_sent_pos for {} - {}".format(tpath, pos))
+        tname = escape_path(tpath)
         path = os.path.join(self.pdir, tname + '.pos')
         with open(path, 'w') as f:
             f.write("{}\n".format(pos))

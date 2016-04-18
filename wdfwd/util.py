@@ -158,11 +158,19 @@ def init_global_fsender(tag, host, port):
         linfo("init_global_fsender")
 
 def _log(level, msg):
+    if logging.getLogger().getEffectiveLevel() > getattr(logging,
+                                                         level.upper()):
+        return
+
     lfun = getattr(logging, level)
     lfun(msg)
     if fsender:
         ts = int(time.time())
-        fsender.emit_with_time(level, ts, msg)
+        try:
+            fsender.emit_with_time(level, ts, msg)
+        except Exception, e:
+            logging.error("_log error - fsender.emit_with_time "
+                          "'{}'".format(str(e)))
 
 
 def ldebug(msg):
@@ -188,3 +196,6 @@ def lcritical(msg):
 def lheader(msg):
     lcritical("============================== {} "
               "==============================".format(msg))
+
+def escape_path(path):
+    return path.replace("\\", "__").replace(":", "__")

@@ -1,3 +1,7 @@
+0.1.0
+=====
+- Support trailing files into Fluent server
+
 0.0.6.0
 =======
 - Check DB name when table iteration

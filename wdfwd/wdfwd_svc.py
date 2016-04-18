@@ -6,7 +6,7 @@ import servicemanager  # NOQA
 from wdfwd import app
 from wdfwd.get_config import get_config
 from wdfwd import util
-from wdfwd.util import ldebug, lheader, init_global_fsender
+from wdfwd.util import ldebug, lerror, lheader, init_global_fsender
 from wdfwd.const import SVC_SLEEP_SEC
 
 
@@ -44,7 +44,10 @@ class WdFwdService(win32serviceutil.ServiceFramework):
                               servicemanager.PYS_SERVICE_STARTED,
                               (self._svc_name_, ''))
 
-        app.start_tailing()
+        try:
+            app.start_tailing()
+        except Exception, e:
+            lerror("app.start_tailing error {}".format(str(e)))
 
         while True:
             app.run_scheduled()
