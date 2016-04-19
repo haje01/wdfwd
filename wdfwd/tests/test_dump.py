@@ -10,11 +10,12 @@ from wdfwd.dump import db
 cfg = get_config()
 acfg = cfg['app']
 dcfg = None
-for task in cfg['tasks']:
-    cmd = task.keys()[0]
-    if cmd == 'sync_db_dump':
-        dcfg = task['sync_db_dump']
-        break
+if 'tasks' in cfg:
+    for task in cfg['tasks']:
+        cmd = task.keys()[0]
+        if cmd == 'sync_db_dump':
+            dcfg = task['sync_db_dump']
+            break
 
 
 def test_dump_config():

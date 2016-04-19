@@ -41,7 +41,7 @@ class TailThread(threading.Thread):
         _log(self.tailer.sender, 'error', tabfunc, msg)
 
     def run(self):
-        self.tailer.update_target()
+        self.tailer.update_target(True)
 
         while True:
             try:
@@ -87,7 +87,7 @@ class FileTailer(object):
     def __init__(self, bdir, ptrn, tag, pdir, fhost, fport,
                  send_term=SEND_TERM, update_term=UPDATE_TERM,
                  max_send_fail=MAX_SEND_FAIL, elatest=None,
-                 echo=False, encoding=None, max_between_data=None):
+                 echo=False, encoding=None, max_pre_data=None, max_between_data=None):
 
         self.trd_name = ""
         self.sender = None
@@ -112,6 +112,7 @@ class FileTailer(object):
         self.elatest_fid = None
         self.cache_sent_pos = {}
         self.encoding = encoding
+        self.max_pre_data = max_pre_data if max_pre_data else 0
         self.max_between_data = max_between_data if max_between_data else MAX_BETWEEN_DATA
 
     def ldebug(self, tabfunc, msg=""):
@@ -264,7 +265,7 @@ class FileTailer(object):
         return False
 
 
-    def update_target(self):
+    def update_target(self, start=False):
         self.ldebug("update_target")
 
         files = glob.glob(os.path.join(self.bdir, self.ptrn))
@@ -286,8 +287,10 @@ class FileTailer(object):
 
         if newt:
             self.ldebug(1, "new target {}".format(self.target_path))
-            # update sent pos
-            self.get_sent_pos()
+            if start:
+                self.start_sent_pos(self.target_path)
+            else:
+                self.update_sent_pos(self.target_path)
         else:
             self.ldebug(1, "cur target {}".format(self.target_path))
 
@@ -341,19 +344,19 @@ class FileTailer(object):
                     return epath, efid
         return None, None
 
-    def _clamp_sent_pos(self, file_pos, sent_pos):
-        # skip previous data, if data to send is too large
-        self.ldebug("_clamp_sent_pos")
-        bytes_to_send = file_pos - sent_pos
-        if bytes_to_send > self.max_between_data:
-            self.ldebug(1, "skip previous data since {} > "
-                        "{}".format(bytes_to_send, self.max_between_data))
-            sent_pos = file_pos
-        else:
-            self.ldebug(1, "will send previous data since {} < "
-                        "{}".format(bytes_to_send, self.max_between_data))
-        self.ldebug(1, "sent_pos: {}".format(sent_pos))
-        return sent_pos
+    #def _clamp_start_pos(self, pos):
+        ## skip previous data, if data to send is too large
+        #self.ldebug("_clamp_start_pos")
+        #bytes = pos - sent_pos
+        #if bytes_to_send > self.max_between_data:
+            #self.ldebug(1, "skip previous data since {} > "
+                        #"{}".format(bytes_to_send, self.max_between_data))
+            #sent_pos = file_pos
+        #else:
+            #self.ldebug(1, "will send previous data since {} <= "
+                        #"{}".format(bytes_to_send, self.max_between_data))
+        #self.ldebug(1, "sent_pos: {}".format(sent_pos))
+        #return sent_pos
 
     def may_send_newlines(self):
         self.raise_if_notarget()
@@ -369,7 +372,7 @@ class FileTailer(object):
                             " bug?".format(sent_pos, file_pos))
             return 0
 
-        sent_pos = self._clamp_sent_pos(file_pos, sent_pos)
+        # sent_pos = self._clamp_sent_pos(file_pos, sent_pos)
 
         # move to last sent pos
         with OpenNoLock(self.target_path) as fh:
@@ -423,8 +426,51 @@ class FileTailer(object):
         if tpath in self.cache_sent_pos:
             return self.cache_sent_pos[tpath]
 
-        ## this is new start
-        self.ldebug("get_sent_pos", "updating for '{}'..".format(tpath))
+        pos = self.update_sent_pos(tpath)
+        self.cache_sent_pos[tpath] = pos
+        return pos
+
+    def start_sent_pos(self, tpath):
+        """
+          calculate sent pos for new service start
+        """
+        self.ldebug("start_sent_pos", "for '{}'..".format(tpath))
+        tname = escape_path(tpath)
+        ppath = os.path.join(self.pdir, tname + '.pos')
+        file_pos = self.get_file_pos(tpath)
+        need_save = False
+        if os.path.isfile(ppath):
+            ## between data
+            # previous pos file means continuation after restart
+            with open(ppath, 'r') as f:
+                line = f.readline()
+                elm = line.split(',')
+                pos = int(elm[0])
+
+            self.ldebug(1, "found pos file - {}: {}".format(ppath, pos))
+            between_bytes = file_pos - pos
+            if between_bytes > self.max_between_data:
+                self.lwarning(1, "between data: start from current file pos"
+                              " since {} > {}".format(between_bytes,
+                              self.max_between_data))
+                pos = file_pos
+                need_save = True
+        else:
+            ## pre data
+            need_save = True
+            if file_pos > self.max_pre_data:
+                self.lwarning(1, "pre data: start from current file pos since"
+                              " {} > {}".format(file_pos, self.max_pre_data))
+                pos = file_pos
+
+        if need_save:
+            self._save_sent_pos(tpath, pos)
+
+    def update_sent_pos(self, tpath):
+        """
+            update sent pos for for new target
+        """
+        self.ldebug("update_sent_pos", "updating for '{}'..".format(tpath))
         # try to read position file
         # which is needed to continue send after temporal restart
         tname = escape_path(tpath)
@@ -437,13 +483,10 @@ class FileTailer(object):
                 pos = int(elm[0])
             self.ldebug(1, "found pos file - {}: {}".format(ppath, pos))
         else:
-            pos = self.get_file_pos(tpath)
-            self.ldebug(1, "can't find pos file for {}, save as current file"
-                        " pos {}".format(tpath, pos))
-            self._save_sent_pos(tpath, pos)
-        self.cache_sent_pos[tpath] = pos
+            self.ldebug(1, "can't find pos file for {}, save as "
+                        "0".format(tpath))
+            self._save_sent_pos(tpath, 0)
         return pos
-
 
     def save_sent_pos(self, pos):
         self.ldebug("save_sent_pos")

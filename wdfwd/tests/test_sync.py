@@ -10,9 +10,8 @@ from wdfwd.sync import sync_folder, find_file_by_ptrn, sync_files, sync_file
 
 cfg = get_config()
 acfg = cfg['app']
-rcfg = acfg['rsync_path']
-rsync_path = acfg['rsync_path']
-tcfg = cfg['tasks']
+rsync_path = acfg['rsync_path'] if 'rsync_path' in acfg else None
+tcfg = cfg['tasks'] if 'tasks' in cfg else None
 
 TEST_FILE = "_test_dummy_"
 
@@ -65,4 +64,3 @@ def test_sync_single_file():
             path = sync['filepath']
             to_url = sync['to_url']
             sync_file(path, to_url)
-

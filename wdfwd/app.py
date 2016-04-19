@@ -28,7 +28,7 @@ fsender = None
 
 
 def start_tailing():
-    ldebug("start_tailing")
+    ldebug("start_tailing-")
     if not tailc:
         ldebug("no tailing config. return")
         return
@@ -38,6 +38,7 @@ def start_tailing():
     if not pos_dir:
         lerror("no position dir info. return")
         return
+    max_pre_data = tailc.get('max_pre_data', None)
     max_between_data = tailc.get('max_between_data', None)
     afrom = tailc['from']
     fluent = tailc['to'].get('fluent', None)
@@ -73,6 +74,7 @@ def start_tailing():
             tailer = FileTailer(bdir, ptrn, tag, pos_dir, fluent_ip,
                                 fluent_port, max_send_fail=0, elatest=latest,
                                 encoding=file_enc,
+                                max_pre_data=max_pre_data,
                                 max_between_data=max_between_data)
             name = "tail{}".format(i+1)
             tailer.trd_name = name

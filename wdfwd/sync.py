@@ -10,7 +10,7 @@ from wdfwd.const import RSYNC_PASSWD
 
 cfg = get_config()
 acfg = cfg['app']
-rsync_path = acfg['rsync_path']
+rsync_path = acfg['rsync_path'] if 'rsync_path' in acfg else None
 RSYNC_EXCLUDE = "--exclude='_wdfwd_*'"
 RSYNC_EXCLUDE2 = "--exclude=.gitignore"
 RSYNC_REMOVE = "--remove-source-files"

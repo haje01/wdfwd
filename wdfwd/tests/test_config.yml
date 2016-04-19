@@ -30,7 +30,7 @@ log:
             maxBytes: 10485760
             backupCount: 10
     root:
-        level: ERROR
+        level: DEBUG
         handlers: [console, file]
     to_url: $WDFWD_DEST/test  # URL for log file sync
 
@@ -38,6 +38,8 @@ test:
     force_today: '20140309'
 
 tailing:
+    max_pre_data: 10000
+    max_between_data: 10000
     pos_dir: $WDFWD_DIR\wdfwd\tests\tpos
     from:
         - file:
