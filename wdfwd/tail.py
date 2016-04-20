@@ -5,11 +5,12 @@ import threading
 import logging
 from StringIO import StringIO
 import traceback
+import json
 
 import win32file, pywintypes
 from fluent.sender import FluentSender, MAX_SEND_FAIL
 
-from wdfwd.util import OpenNoLock, get_fileid, escape_path
+from wdfwd.util import OpenNoLock, get_fileid, escape_path, validate_format as _validate_format
 
 MAX_READ_BUF = 100 * 100
 MAX_SEND_RETRY = 5
@@ -64,6 +65,37 @@ class TailThread(threading.Thread):
         self._exit = True
 
 
+def get_file_lineinfo(path, post_lines=None):
+    pos_tot = 0
+    line_tot = 0
+    if post_lines:
+        with OpenNoLock(path) as fh:
+            while True:
+                res, data = win32file.ReadFile(fh, MAX_READ_BUF, None)
+                nbyte = len(data)
+                pos_tot += nbyte
+                line_tot += len(data.splitlines())
+                if nbyte < MAX_READ_BUF:
+                    break
+
+    pos = 0
+    nlines = 0
+    with OpenNoLock(path) as fh:
+        while True:
+            res, data = win32file.ReadFile(fh, MAX_READ_BUF, None)
+            nbyte = len(data)
+            for line in data.splitlines():
+                if post_lines and line_tot - nlines <= post_lines:
+                    break
+                pos += len(line) + 2  # for \r\n
+                if pos_tot and pos > pos_tot:
+                    pos = pos_tot
+                nlines += 1
+            if nbyte < MAX_READ_BUF:
+                break
+    return nlines, pos
+
+
 def _log(fsender, level, tabfunc, _msg):
     if logging.getLogger().getEffectiveLevel() > getattr(logging,
                                                          level.upper()):
@@ -80,14 +112,15 @@ def _log(fsender, level, tabfunc, _msg):
     lfun(msg)
     if fsender:
         ts = int(time.time())
-        fsender.emit_with_time("{}".format(level), ts, msg)
+        fsender.emit_with_time("{}".format(level), ts, {"message": msg})
 
 
 class FileTailer(object):
     def __init__(self, bdir, ptrn, tag, pdir, fhost, fport,
                  send_term=SEND_TERM, update_term=UPDATE_TERM,
                  max_send_fail=MAX_SEND_FAIL, elatest=None,
-                 echo=False, encoding=None, max_pre_data=None, max_between_data=None):
+                 echo=False, encoding=None, lines_on_start=None,
+                 max_between_data=None, format=None):
 
         self.trd_name = ""
         self.sender = None
@@ -112,8 +145,13 @@ class FileTailer(object):
         self.elatest_fid = None
         self.cache_sent_pos = {}
         self.encoding = encoding
-        self.max_pre_data = max_pre_data if max_pre_data else 0
+        self.lines_on_start = lines_on_start if lines_on_start else 0
         self.max_between_data = max_between_data if max_between_data else MAX_BETWEEN_DATA
+        if type(format) == str or type(format) == unicode:
+            self.format = self.validate_format(format)
+        else:
+            self.format = format
+        self.ldebug("effective format: '{}'".format(self.format))
 
     def ldebug(self, tabfunc, msg=""):
         _log(self.sender, 'debug', tabfunc, msg)
@@ -305,15 +343,57 @@ class FileTailer(object):
             with OpenNoLock(tpath) as fh:
                 return win32file.GetFileSize(fh)
         except pywintypes.error, e:
-            err = self.convert_msg(e[2])
+            err = e[2]
+            if self.encoding:
+                err = err.decode(self.encoding).encode('utf8')
             self.lerror("get_file_pos", "{} - {}".format(err, tpath))
             raise
 
+    def validate_format(self, fmt):
+        return _validate_format(self.ldebug, self.lerror, fmt)
+
     def convert_msg(self, msg):
+        self.ldebug("convert_msg")
         if self.encoding:
-            return msg.decode(self.encoding).encode('utf8')
+            msg = msg.decode(self.encoding).encode('utf8')
+
+        dt = None
+        level = None
+        if self.format:
+            self.ldebug(1, "try match format")
+            match = self.format.search(msg)
+            if match:
+                gd = match.groupdict()
+                parsed = False
+                dt = gd['dt']
+                level = gd['level']
+
+                if 'json' in gd:
+                    self.ldebug(1, "json data found")
+                    try:
+                        msg = json.loads(gd['json'])
+                        parsed = True
+                    except ValueError:
+                        self.lerror("can't parse json data '{}'".format(gd['json']))
+                elif 'data' in gd:
+                    self.ldebug(1, "raw data found")
+                    msg = {}
+                    msg['message'] = gd['data']
+                    parsed = True
+                else:
+                    self.lwarning(1, "can't find json/data part at '{}'".format(msg))
+
+                if parsed:
+                    msg['_dt'] = dt
+                    msg['_lvl'] = level
+            else:
+                self.ldebug(1, "can't parse line '{}'".format(msg))
+                # send it as raw data
+                msg = {'message': msg}
         else:
-            return msg
+            self.ldebug(1, "no format")
+
+        return msg
 
     def _read_target_to_end(self, fh):
         self.raise_if_notarget()
@@ -366,6 +446,7 @@ class FileTailer(object):
         # skip if no newlines
         file_pos = self.get_file_pos()
         sent_pos = self.get_sent_pos()
+        # self.ldebug("file_pos {}, sent_pos {}".format(file_pos, sent_pos))
         if sent_pos >= file_pos:
             if sent_pos > file_pos:
                 self.lerror("sent_pos {} > file_pos {}. cache"
@@ -398,9 +479,9 @@ class FileTailer(object):
                 if len(line) == 0:
                     continue
                 ts = int(time.time())
-                line = self.convert_msg(line)
-                self.sender.emit_with_time("data", ts, line)
-                self.may_echo(ts, line)
+                msg = self.convert_msg(line)
+                self.sender.emit_with_time("data", ts, msg)
+                self.may_echo(ts, msg)
                 scnt += 1
         except Exception, e:
             self.ldebug(1, "send fail '{}'".format(e))
@@ -438,33 +519,35 @@ class FileTailer(object):
         tname = escape_path(tpath)
         ppath = os.path.join(self.pdir, tname + '.pos')
         file_pos = self.get_file_pos(tpath)
-        need_save = False
         if os.path.isfile(ppath):
             ## between data
             # previous pos file means continuation after restart
             with open(ppath, 'r') as f:
                 line = f.readline()
                 elm = line.split(',')
-                pos = int(elm[0])
-
-            self.ldebug(1, "found pos file - {}: {}".format(ppath, pos))
-            between_bytes = file_pos - pos
-            if between_bytes > self.max_between_data:
-                self.lwarning(1, "between data: start from current file pos"
-                              " since {} > {}".format(between_bytes,
-                              self.max_between_data))
-                pos = file_pos
-                need_save = True
+                spos = int(elm[0])
+            self.ldebug(1, "found pos file - {}: {}".format(ppath, spos))
+            if spos > file_pos:
+                self.lwarning(1, "sent pos ({}) > file pos ({}). possible file"
+                              " change. trim..".format(spos, file_pos))
+                spos = file_pos
         else:
-            ## pre data
-            need_save = True
-            if file_pos > self.max_pre_data:
-                self.lwarning(1, "pre data: start from current file pos since"
-                              " {} > {}".format(file_pos, self.max_pre_data))
-                pos = file_pos
+            spos = 0
 
-        if need_save:
-            self._save_sent_pos(tpath, pos)
+        send_bytes = file_pos - spos
+        if send_bytes > self.max_between_data:
+            self.lwarning(1, "between data: start from current file pos"
+                            " since {} > {}".format(send_bytes,
+                            self.max_between_data))
+            spos = file_pos
+
+        if self.lines_on_start:
+            lines, pos = get_file_lineinfo(tpath, self.lines_on_start)
+            self.lwarning("get_file_lineinfo for lines_on_start "
+                          "{} - {} {}".format(self.lines_on_start, lines, pos))
+            spos = pos
+
+        self._save_sent_pos(tpath, spos)
 
     def update_sent_pos(self, tpath):
         """

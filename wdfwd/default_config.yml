@@ -34,7 +34,6 @@ log:
 
 
 tailing:
-    max_pre_data:  # include previous data when no pos file. default) 0
     max_between_data: # skip between data larger than this size. default) 10000
     file_encoding: # target file encoding  ex) cp949
     pos_dir: # TAIL-POS-FOLDER-PATH ex) C:\wdfwd-temp

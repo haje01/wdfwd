@@ -38,7 +38,7 @@ test:
     force_today: '20140309'
 
 tailing:
-    max_pre_data: 10000
+    pre_data_resend: 0
     max_between_data: 10000
     pos_dir: $WDFWD_DIR\wdfwd\tests\tpos
     from:

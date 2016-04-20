@@ -2,6 +2,7 @@ import os
 import logging
 import tempfile
 import time
+import re
 from subprocess import check_call as _check_call, CalledProcessError
 
 import win32file
@@ -167,7 +168,7 @@ def _log(level, msg):
     if fsender:
         ts = int(time.time())
         try:
-            fsender.emit_with_time(level, ts, msg)
+            fsender.emit_with_time(level, ts, {"message": msg})
         except Exception, e:
             logging.error("_log error - fsender.emit_with_time "
                           "'{}'".format(str(e)))
@@ -199,3 +200,29 @@ def lheader(msg):
 
 def escape_path(path):
     return path.replace("\\", "__").replace(":", "__")
+
+
+class InvalidFormat(Exception):
+    pass
+
+
+def validate_format(ldebug, lerror, fmt):
+    ldebug("validate_format {}".format(fmt))
+    if not fmt:
+        return None
+
+    if '(?P<dt>' not in fmt:
+        lerror("validate_format - not found <dt> part")
+        raise InvalidFormat()
+    if '(?P<level>' not in fmt:
+        lerror("validate_format - not found <level> part")
+        raise InvalidFormat()
+    if ('(?P<json>' not in fmt) and ('(?P<data>' not in fmt):
+        lerror("validate_format - not found <json/data> part")
+        raise InvalidFormat()
+
+    try:
+        return re.compile(fmt)
+    except Exception, e:
+        lerror("validate_format '{}' - invalid format '{}'".format(str(e), fmt))
+        raise InvalidFormat()

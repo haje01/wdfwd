@@ -7,15 +7,15 @@ from croniter import croniter
 
 from wdfwd.get_config import get_config
 from wdfwd.tail import FileTailer, TailThread, SEND_TERM, UPDATE_TERM
-from wdfwd.util import ldebug, linfo, lerror
+from wdfwd.util import ldebug, linfo, lerror, validate_format
 
 
 cfg = get_config()
 appc = cfg['app']
-tailc = cfg.get('tailing', None)
+tailc = cfg.get('tailing')
 
 start_dt = datetime.now()
-schedule = appc['service'].get('schedule', None)
+schedule = appc['service'].get('schedule')
 cit = croniter(schedule, start_dt) if schedule else None
 next_dt = cit.get_next(datetime) if cit else None
 logcnt = 0
@@ -33,15 +33,20 @@ def start_tailing():
         ldebug("no tailing config. return")
         return
 
-    file_enc = tailc.get('file_encoding', None)
-    pos_dir = tailc.get('pos_dir', None)
+    file_enc = tailc.get('file_encoding')
+    pos_dir = tailc.get('pos_dir')
     if not pos_dir:
         lerror("no position dir info. return")
         return
-    max_pre_data = tailc.get('max_pre_data', None)
-    max_between_data = tailc.get('max_between_data', None)
+    lines_on_start = tailc.get('lines_on_start')
+    max_between_data = tailc.get('max_between_data')
     afrom = tailc['from']
-    fluent = tailc['to'].get('fluent', None)
+    fluent = tailc['to'].get('fluent')
+    gformat = tailc.get('format')
+    linfo("global format: '{}'".format(gformat))
+    if gformat:
+        gformat = validate_format(ldebug, lerror, gformat)
+
     if not fluent:
         lerror("no fluent server info. return")
         return
@@ -64,6 +69,11 @@ def start_tailing():
             bdir = filec['dir']
             ptrn = filec['pattern']
             latest = filec.get('latest')
+            format = filec.get('format')
+            ldebug("file format: '{}'".format(format))
+            if not format and gformat:
+                linfo("file format not exist. use global format instead")
+                format = gformat
             tag = filec['tag']
             send_term = filec.get('send_term', SEND_TERM)
             update_term = filec.get('update_term', UPDATE_TERM)
@@ -74,8 +84,9 @@ def start_tailing():
             tailer = FileTailer(bdir, ptrn, tag, pos_dir, fluent_ip,
                                 fluent_port, max_send_fail=0, elatest=latest,
                                 encoding=file_enc,
-                                max_pre_data=max_pre_data,
-                                max_between_data=max_between_data)
+                                lines_on_start=lines_on_start,
+                                max_between_data=max_between_data,
+                                format=format)
             name = "tail{}".format(i+1)
             tailer.trd_name = name
             ldebug("create & start {} thread".format(name))
