@@ -1,8 +1,8 @@
-# WdFwd
+# wdfwd
 
-유닉스 계열의 OS에는 각종 로그를 포워딩하기 위한 좋은 솔루션들이 많이 있다. 그러나 윈도우를 위한 로그 포워더는 부족하다. WdFwd(=WzDat Log Forwarder)는 윈도우 서비스로 설치되어 파일 로그나 DB에 저장된 로그를 분석을 위해 포워딩해준다.
+유닉스 계열의 OS에는 각종 로그를 포워딩하기 위한 좋은 솔루션들이 많이 있다. 그러나 윈도우를 위한 로그 포워더는 부족하다. wdfwd(=WzDat Log Forwarder)는 윈도우 서비스로 설치되어 파일 로그나 DB에 저장된 로그를 분석을 위해 포워딩해준다.
 
-WdFwd는 [WzDat](https://github.com/haje01/wzdat)을 위해 만들어 졌으나, 다양한 로그 전송의 용도로 사용될 수 있다.
+wdfwd는 [WzDat](https://github.com/haje01/wzdat)을 위해 만들어 졌으나, 다양한 로그 전송의 용도로 사용될 수 있다.
 
 ## 특징
 
@@ -35,8 +35,8 @@ rsync를 사용하면 서버에 있는 파일을 정해진 스케쥴로 목적�
 #### cwRsync 설치
 [cwRsync](https://www.itefix.net/cwrsync)는 윈도우 용 rsync 클라이언트이다. 홈페이지에서 Free 버전을 받아 설치한다.
 
-#### WdFwd 설치
-1. 미리 폴더 전체로 압축해둔 WdFwd 압축파일을 푼다
+#### wdfwd 설치
+1. 미리 폴더 전체로 압축해둔 wdfwd 압축파일을 푼다
 1. `files/default-config.yml`을 `config.yml`로 복사
 1. 임시 작업 폴더를 만든다 예) `c:\wdfwd-temp`
 
@@ -74,7 +74,7 @@ rsync를 사용하면 서버에 있는 파일을 정해진 스케쥴로 목적�
 
 #### log 설정
 
-WdFwd 자체 로그 관련 설정이다.
+wdfwd 자체 로그 관련 설정이다.
     
     log:
         version: 1
@@ -96,9 +96,9 @@ WdFwd 자체 로그 관련 설정이다.
             handlers: [file]
         to_url: # RSYNC-SERVER-URL-FOR-LOG ex) rsync-user@myserver.net::rsync-backup/myprj
 
-`handlers` > `file` > `filename` - WdFwd 자체 로그의 위치이다. 준비 단계에서 만들어둔 작업 폴더 아래 로그파일명 (예: `_wdfwd_log.txt` )까지의 풀 경로를 기입한다.
+`handlers` > `file` > `filename` - wdfwd 자체 로그의 위치이다. 준비 단계에서 만들어둔 작업 폴더 아래 로그파일명 (예: `_wdfwd_log.txt` )까지의 풀 경로를 기입한다.
 
-`to_url` - WdFwd 자체 로그가 전송될 URL이다. 포워더 서비스가 잘 동작하고 있는지 확인할 때 용이하다.  `rsync-user@myserver.net::rsync-backup/myprj`형식으로 기입한다. 
+`to_url` - wdfwd 자체 로그가 전송될 URL이다. 포워더 서비스가 잘 동작하고 있는지 확인할 때 용이하다.  `rsync-user@myserver.net::rsync-backup/myprj`형식으로 기입한다. 
    
 #### tasks 설정
 
@@ -294,11 +294,11 @@ Fluentd 서버로 보낸다. `[IP주소, 포트]` 형식을 따른다.
 
 윈도우의 `제어판` > `고급 시스템 설정` > `환경 변수`에 다음과 같이 설정한다.
 
- `WDFWD_CFG`을 WdFwd 폴더 내 `config.yml`파일의 경로로 (예: `c:\wdfwd-버전\config.yaml`) 로
+ `WDFWD_CFG`을 wdfwd 폴더 내 `config.yml`파일의 경로로 (예: `c:\wdfwd-버전\config.yaml`) 로
 
 ### 서비스 운용
 
-터미널을 열고 WdFwd가 설치된 폴더로 이동(`cd`) 후 아래와 같이 진행한다.
+터미널을 열고 wdfwd가 설치된 폴더로 이동(`cd`) 후 아래와 같이 진행한다.
 
 #### 서비스 설치 
 *만약 기존에 설치된 버전이 있으면, 반드시 아래의 제거 방법을 참고하여 먼저 제거해준다.*
@@ -331,7 +331,7 @@ Fluentd 서버로 보낸다. `[IP주소, 포트]` 형식을 따른다.
 
 ### 서비스 설치시 에러가 나거나 시작되지 않는 경우
 
-임시 작업 폴더 아래의 WdFwd로그 파일(예: `c:\wdfwd-temp\_wdfwd_log.txt`) 내 에러 메시지를 확인한다.
+임시 작업 폴더 아래의 wdfwd로그 파일(예: `c:\wdfwd-temp\_wdfwd_log.txt`) 내 에러 메시지를 확인한다.
 
 ### 네트워크 문제
 
@@ -350,7 +350,7 @@ DB 계정 ID 혹은 암호를 확인한다.
 해당 테이블의 읽기 권한이 있는지 확인한다.
 
 #### DB 네트워크 확인
-WdFwd가 설치된 장비에서 DB로의 접속이 가능한지 확인한다.
+wdfwd가 설치된 장비에서 DB로의 접속이 가능한지 확인한다.
 
 ### DNS or IP?
 
