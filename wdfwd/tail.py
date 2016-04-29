@@ -118,9 +118,9 @@ def _log(fsender, level, tabfunc, _msg):
 class FileTailer(object):
     def __init__(self, bdir, ptrn, tag, pdir, fhost, fport,
                  send_term=SEND_TERM, update_term=UPDATE_TERM,
-                 max_send_fail=MAX_SEND_FAIL, elatest=None,
-                 echo=False, encoding=None, lines_on_start=None,
-                 max_between_data=None, format=None):
+                 max_send_fail=None, elatest=None, echo=False, encoding=None,
+                 lines_on_start=None, max_between_data=None, format=None,
+                 multiline=None):
 
         self.trd_name = ""
         self.sender = None
@@ -134,6 +134,7 @@ class FileTailer(object):
         self.last_send_try = 0
         self.update_term = update_term
         self.last_update = 0
+        max_send_fail = max_send_fail if max_send_fail else MAX_SEND_FAIL
         self.sender = FluentSender(tag, fhost, fport,
                                    max_send_fail=max_send_fail)
         self.fhost = fhost
@@ -147,11 +148,13 @@ class FileTailer(object):
         self.encoding = encoding
         self.lines_on_start = lines_on_start if lines_on_start else 0
         self.max_between_data = max_between_data if max_between_data else MAX_BETWEEN_DATA
-        if type(format) == str or type(format) == unicode:
-            self.format = self.validate_format(format)
-        else:
-            self.format = format
-        self.ldebug("effective format: '{}'".format(self.format))
+        self.multiline = multiline if multiline else None
+        self._reset_ml_msg()
+        self.ldebug("effective format: '{}'".format(format))
+        self.format = self.validate_format(format)
+
+    def _reset_ml_msg(self):
+        self.ml_msg = dict(message=[])
 
     def ldebug(self, tabfunc, msg=""):
         _log(self.sender, 'debug', tabfunc, msg)
@@ -365,27 +368,35 @@ class FileTailer(object):
             if match:
                 gd = match.groupdict()
                 parsed = False
-                dt = gd['dt']
-                level = gd['level']
 
-                if 'json' in gd:
+                if '_json_' in gd:
                     self.ldebug(1, "json data found")
                     try:
-                        msg = json.loads(gd['json'])
+                        msg = json.loads(gd['_json_'])
                         parsed = True
                     except ValueError:
-                        self.lerror("can't parse json data '{}'".format(gd['json']))
-                elif 'data' in gd:
-                    self.ldebug(1, "raw data found")
+                        self.lerror("can't parse json data "
+                                    "'{}'".format(gd['json'][:100]))
+                        msg['message'] = gd['data']
+                        parsed = True
+                elif '_text_' in gd:
+                    self.ldebug(1, "text data found")
                     msg = {}
-                    msg['message'] = gd['data']
+                    msg['message'] = gd['_text_']
                     parsed = True
                 else:
-                    self.lwarning(1, "can't find json/data part at '{}'".format(msg))
+                    self.lwarning(1, "can't find json/data part at "
+                                  "'{}'".format(msg))
 
                 if parsed:
-                    msg['_dt'] = dt
-                    msg['_lvl'] = level
+                    for key in gd.keys():
+                        if key[0] == '_' and key[-1] == '_':
+                            continue
+                        if key in msg.keys():
+                            self.lwarning(1, "'{}' is overwritten from '{}' to"
+                                          " '{}'".format(key, msg[key],
+                                                         gd[key]))
+                        msg[key] = gd[key]
             else:
                 self.ldebug(1, "can't parse line '{}'".format(msg))
                 # send it as raw data
@@ -472,14 +483,56 @@ class FileTailer(object):
         self.save_sent_pos(sent_pos + rbytes)
         return scnt
 
+    def _iterate_multiline(self, lines):
+        self.ldebug("_iterate_multiline")
+        for line in lines.splitlines():
+            if self.encoding:
+                line = line.decode(self.encoding).encode('utf8')
+
+            dt = None
+            level = None
+            if self.format:
+                self.ldebug(1, "try match format")
+                match = self.format.search(line)
+                if match:
+                    ## multiline head
+                    # if prepending ml msg exists, send it
+                    if len(self.ml_msg['message']) > 0:
+                        self.ml_msg['message'] = '\n'.join(self.ml_msg['message'])
+                        yield self.ml_msg
+
+                    self._reset_ml_msg()
+                    gd = match.groupdict()
+                    dt = gd['dt']
+                    level = gd['level']
+
+                    # multiline log must be plain text
+                    assert 'json' not in gd
+                    self.ml_msg['message'] = [gd['data']]
+                    self.ml_msg['dt_'] = dt
+                    self.ml_msg['lvl_'] = level
+                else:
+                    ## multiline tail
+                    if hasattr(self.ml_msg, 'message') and\
+                            len(self.ml_msg['message']) > 0:
+                        self.lerror("multiline message does not start property! - '{}'".format(msg))
+                    else:
+                        self.ml_msg['message'].append(line)
+            else:
+                assert 'multiline must have format'
+
+    def _iterate_line(self, lines):
+        self.ldebug("_iterate_line")
+        for line in lines.splitlines():
+            yield self.convert_msg(line)
+
     def _may_send_newlines(self, lines, rbytes, scnt):
         self.ldebug("_may_send_newlines", "sending {} bytes..".format(rbytes))
         try:
-            for line in lines.splitlines():
-                if len(line) == 0:
-                    continue
+            itr = self._iterate_multiline(lines) if self.multiline else\
+                self._iterate_line(lines)
+            for msg in itr:
                 ts = int(time.time())
-                msg = self.convert_msg(line)
                 self.sender.emit_with_time("data", ts, msg)
                 self.may_echo(ts, msg)
                 scnt += 1

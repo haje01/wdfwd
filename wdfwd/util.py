@@ -202,7 +202,7 @@ def escape_path(path):
     return path.replace("\\", "__").replace(":", "__")
 
 
-class InvalidFormat(Exception):
+class InvalidLogFormat(Exception):
     pass
 
 
@@ -211,18 +211,16 @@ def validate_format(ldebug, lerror, fmt):
     if not fmt:
         return None
 
-    if '(?P<dt>' not in fmt:
-        lerror("validate_format - not found <dt> part")
-        raise InvalidFormat()
-    if '(?P<level>' not in fmt:
-        lerror("validate_format - not found <level> part")
-        raise InvalidFormat()
-    if ('(?P<json>' not in fmt) and ('(?P<data>' not in fmt):
-        lerror("validate_format - not found <json/data> part")
-        raise InvalidFormat()
+    if '(?P<dt_>' not in fmt:
+        lerror("validate_format - not found 'dt_' part")
+        raise InvalidLogFormat()
+
+    if ('(?P<_json_>' not in fmt) and ('(?P<_text_>' not in fmt):
+        lerror("validate_format - not found <_json_/_text_> part")
+        raise InvalidLogFormat()
 
     try:
         return re.compile(fmt)
     except Exception, e:
         lerror("validate_format '{}' - invalid format '{}'".format(str(e), fmt))
-        raise InvalidFormat()
+        raise InvalidLogFormat()

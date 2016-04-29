@@ -45,7 +45,7 @@ def start_tailing():
     gformat = tailc.get('format')
     linfo("global format: '{}'".format(gformat))
     if gformat:
-        gformat = validate_format(ldebug, lerror, gformat)
+        validate_format(ldebug, lerror, gformat)
 
     if not fluent:
         lerror("no fluent server info. return")
@@ -82,8 +82,7 @@ def start_tailing():
                           "'{}'".format(bdir, ptrn, tag, pos_dir, fluent,
                                         latest))
             tailer = FileTailer(bdir, ptrn, tag, pos_dir, fluent_ip,
-                                fluent_port, max_send_fail=0, elatest=latest,
-                                encoding=file_enc,
+                                fluent_port, elatest=latest, encoding=file_enc,
                                 lines_on_start=lines_on_start,
                                 max_between_data=max_between_data,
                                 format=format)
