@@ -7,10 +7,12 @@ from StringIO import StringIO
 import traceback
 import json
 
-import win32file, pywintypes
+import win32file
+import pywintypes
 from fluent.sender import FluentSender, MAX_SEND_FAIL
 
-from wdfwd.util import OpenNoLock, get_fileid, escape_path, validate_format as _validate_format
+from wdfwd.util import OpenNoLock, get_fileid, escape_path, validate_format as\
+    _validate_format
 
 MAX_READ_BUF = 100 * 100
 MAX_SEND_RETRY = 5
@@ -112,7 +114,10 @@ def _log(fsender, level, tabfunc, _msg):
     lfun(msg)
     if fsender:
         ts = int(time.time())
-        fsender.emit_with_time("{}".format(level), ts, {"message": msg})
+        try:
+            fsender.emit_with_time("{}".format(level), ts, {"message": msg})
+        except Exception, e:
+            logging.warning("_log", "send fail '{}'".format(e))
 
 
 class FileTailer(object):
@@ -147,7 +152,8 @@ class FileTailer(object):
         self.cache_sent_pos = {}
         self.encoding = encoding
         self.lines_on_start = lines_on_start if lines_on_start else 0
-        self.max_between_data = max_between_data if max_between_data else MAX_BETWEEN_DATA
+        self.max_between_data = max_between_data if max_between_data else\
+            MAX_BETWEEN_DATA
         self.multiline = multiline if multiline else None
         self._reset_ml_msg()
         self.ldebug("effective format: '{}'".format(format))
@@ -197,10 +203,6 @@ class FileTailer(object):
         # send new lines when need
         sent_line = 0
         netok = True
-        #self.ldebug("check send", "{} {}".format(self.target_path if
-                                                    #self.target_path else
-                                                    #"NoTarget",
-                                                    #cur-self.last_send_try))
         # handle if elatest file has been rotated
         latest_rot = False
         if not self.elatest:
@@ -239,7 +241,7 @@ class FileTailer(object):
 
         if self.elatest_fid is None:
             if efid:
-                ## new elatest
+                # new elatest
                 self.elatest_fid = efid
                 files.append(epath)
 
@@ -276,7 +278,6 @@ class FileTailer(object):
 
         #  if elatest file has been changed
         if self.elatest_fid and efid != self.elatest_fid:
-            oefid = self.elatest_fid
             if not epath:
                 self.lwarning("handle_elatest_rotation",
                               "elatest file has been rotated, but new"
@@ -304,7 +305,6 @@ class FileTailer(object):
             self.set_target(pre_elatest)
             return True
         return False
-
 
     def update_target(self, start=False):
         self.ldebug("update_target")
@@ -360,8 +360,6 @@ class FileTailer(object):
         if self.encoding:
             msg = msg.decode(self.encoding).encode('utf8')
 
-        dt = None
-        level = None
         if self.format:
             self.ldebug(1, "try match format")
             match = self.format.search(msg)
@@ -435,20 +433,6 @@ class FileTailer(object):
                     return epath, efid
         return None, None
 
-    #def _clamp_start_pos(self, pos):
-        ## skip previous data, if data to send is too large
-        #self.ldebug("_clamp_start_pos")
-        #bytes = pos - sent_pos
-        #if bytes_to_send > self.max_between_data:
-            #self.ldebug(1, "skip previous data since {} > "
-                        #"{}".format(bytes_to_send, self.max_between_data))
-            #sent_pos = file_pos
-        #else:
-            #self.ldebug(1, "will send previous data since {} <= "
-                        #"{}".format(bytes_to_send, self.max_between_data))
-        #self.ldebug(1, "sent_pos: {}".format(sent_pos))
-        #return sent_pos
-
     def may_send_newlines(self):
         self.raise_if_notarget()
 
@@ -495,10 +479,11 @@ class FileTailer(object):
                 self.ldebug(1, "try match format")
                 match = self.format.search(line)
                 if match:
-                    ## multiline head
+                    # multiline head
                     # if prepending ml msg exists, send it
                     if len(self.ml_msg['message']) > 0:
-                        self.ml_msg['message'] = '\n'.join(self.ml_msg['message'])
+                        self.ml_msg['message'] =\
+                            '\n'.join(self.ml_msg['message'])
                         yield self.ml_msg
 
                     self._reset_ml_msg()
@@ -512,10 +497,11 @@ class FileTailer(object):
                     self.ml_msg['dt_'] = dt
                     self.ml_msg['lvl_'] = level
                 else:
-                    ## multiline tail
+                    # multiline tail
                     if hasattr(self.ml_msg, 'message') and\
                             len(self.ml_msg['message']) > 0:
-                        self.lerror("multiline message does not start property! - '{}'".format(msg))
+                        self.lerror("multiline message does not start "
+                                    "property! - '{}'".format(msg))
                     else:
                         self.ml_msg['message'].append(line)
             else:
@@ -537,12 +523,12 @@ class FileTailer(object):
                 self.may_echo(ts, msg)
                 scnt += 1
         except Exception, e:
-            self.ldebug(1, "send fail '{}'".format(e))
+            self.lwarning(1, "send fail '{}'".format(e))
             self.send_retry += 1
             if self.send_retry < MAX_SEND_RETRY:
                 self.lerror(1, "Not exceed max retry({} < {}), will try "
                             "again".format(self.send_retry,
-                                            MAX_SEND_RETRY))
+                                           MAX_SEND_RETRY))
                 raise
             else:
                 self.lerror(1, "Exceed max retry, Giving up this change({}"
@@ -573,7 +559,7 @@ class FileTailer(object):
         ppath = os.path.join(self.pdir, tname + '.pos')
         file_pos = self.get_file_pos(tpath)
         if os.path.isfile(ppath):
-            ## between data
+            # between data
             # previous pos file means continuation after restart
             with open(ppath, 'r') as f:
                 line = f.readline()
@@ -590,8 +576,8 @@ class FileTailer(object):
         send_bytes = file_pos - spos
         if send_bytes > self.max_between_data:
             self.lwarning(1, "between data: start from current file pos"
-                            " since {} > {}".format(send_bytes,
-                            self.max_between_data))
+                             " since {} > {}".format(send_bytes,
+                                                     self.max_between_data))
             spos = file_pos
 
         if self.lines_on_start:
