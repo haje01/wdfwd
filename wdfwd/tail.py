@@ -14,7 +14,7 @@ import pywintypes
 from fluent.sender import FluentSender, MAX_SEND_FAIL
 
 from wdfwd.util import OpenNoLock, get_fileid, escape_path, validate_format as\
-    _validate_format, validate_order_ptrn
+    _validate_format, validate_order_ptrn as _validate_order_ptrn
 
 MAX_READ_BUF = 1000 * 1000
 MAX_SEND_RETRY = 5
@@ -160,8 +160,7 @@ class FileTailer(object):
         self.ldebug("effective format: '{}'".format(format))
         self.format = self.validate_format(format, multiline)
         self.pending_mlmsg = None
-        self.order_ptrn = validate_order_ptrn(order_ptrn) if order_ptrn else\
-            None
+        self.order_ptrn = self.validate_order_ptrn(order_ptrn)
 
     def _reset_ml_msg(self):
         self.ml_msg = dict(message=[])
@@ -313,13 +312,19 @@ class FileTailer(object):
         return False
 
     def get_sorted_target_files(self):
+        self.ldebug("get_sorted_target_files")
         files = glob.glob(os.path.join(self.bdir, self.ptrn))
         for afile in files:
             print afile
         if self.order_ptrn:
             order_key = {}
             for afile in files:
-                gd = self.order_ptrn.search(afile).groupdict()
+                match = self.order_ptrn.search(afile)
+                if not match:
+                    self.lwarning(1, "file order pattern mismatch - "
+                                  "'{}'".format(afile))
+                    continue
+                gd = match.groupdict()
                 order_key[afile] = gd['date'] + ".{:06d}".format(int(gd['order']))
             return sorted(files, key=lambda f: order_key[f])
         else:
@@ -373,6 +378,9 @@ class FileTailer(object):
 
     def validate_format(self, fmt, multiline):
         return _validate_format(self.ldebug, self.lerror, fmt, multiline)
+
+    def validate_order_ptrn(self, fmt):
+        return _validate_order_ptrn(self.ldebug, self.lerror, fmt)
 
     def convert_msg(self, msg, return_unparsed=False):
         self.ldebug("convert_msg")

@@ -7,7 +7,7 @@ from croniter import croniter
 
 from wdfwd.get_config import get_config
 from wdfwd.tail import FileTailer, TailThread, SEND_TERM, UPDATE_TERM
-from wdfwd.util import ldebug, linfo, lerror, validate_format
+from wdfwd.util import ldebug, linfo, lerror, validate_format, validate_order_ptrn
 
 
 cfg = get_config()
@@ -42,10 +42,16 @@ def start_tailing():
     max_between_data = tailc.get('max_between_data')
     afrom = tailc['from']
     fluent = tailc['to'].get('fluent')
+
     gformat = tailc.get('format')
-    linfo("global format: '{}'".format(gformat))
+    linfo("global line format: '{}'".format(gformat))
     if gformat:
         validate_format(ldebug, lerror, gformat, False)
+
+    gorder_ptrn = tailc.get('order_ptrn')
+    ldebug("global order ptrn: '{}'".format(gorder_ptrn))
+    if gorder_ptrn:
+        validate_order_ptrn(ldebug, lerror, gorder_ptrn)
 
     if not fluent:
         lerror("no fluent server info. return")
@@ -70,7 +76,6 @@ def start_tailing():
             ptrn = filec['pattern']
             latest = filec.get('latest')
             format = filec.get('format')
-            order_ptrn = filec.get('order_ptrn')
             ldebug("file format: '{}'".format(format))
             if not format and gformat:
                 linfo("file format not exist. use global format instead")
@@ -86,7 +91,7 @@ def start_tailing():
                                 fluent_port, elatest=latest, encoding=file_enc,
                                 lines_on_start=lines_on_start,
                                 max_between_data=max_between_data,
-                                format=format, order_ptrn=order_ptrn)
+                                format=format, order_ptrn=gorder_ptrn)
             name = "tail{}".format(i+1)
             tailer.trd_name = name
             ldebug("create & start {} thread".format(name))

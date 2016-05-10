@@ -10,7 +10,7 @@ import win32file
 fsender = None
 
 def cap_call(cmd, retry=0, _raise=True, _test=False):
-    logging.info('cap_call cmd: {}, retry: {}'.format(str(cmd), _raise))
+    logging.info('cap_call cmd: {}, retry: {}'.format(cmd, _raise))
     if retry > 0:
         for i in range(retry + 1):
             _raise = False if i < retry else True
@@ -171,7 +171,7 @@ def _log(level, msg):
             fsender.emit_with_time(level, ts, {"message": msg})
         except Exception, e:
             logging.error("_log error - fsender.emit_with_time "
-                          "'{}'".format(str(e)))
+                          "'{}'".format(e))
 
 
 def ldebug(msg):
@@ -220,7 +220,7 @@ def validate_format(ldebug, lerror, fmt, multiline):
 def _validate_format(ldebug, lerror, fmt):
     ldebug("validate_format {}".format(fmt))
     if not fmt:
-        return None
+        return
 
     if '(?P<dt_>' not in fmt:
         lerror("validate_format - not found 'dt_' part")
@@ -233,7 +233,7 @@ def _validate_format(ldebug, lerror, fmt):
     try:
         return re.compile(fmt)
     except Exception, e:
-        lerror("validate_format '{}' - invalid format '{}'".format(str(e), fmt))
+        lerror("validate_format '{}' - invalid format '{}'".format(e, fmt))
         raise InvalidLogFormat()
 
 
@@ -242,7 +242,7 @@ def _validate_multi_format(ldebug, lerror, format):
         try:
             return re.compile(fmt)
         except Exception, e:
-            lerror("_validate_multi_format '{}' - invalid format '{}'".format(str(e), fmt))
+            lerror("_validate_multi_format '{}' - invalid format '{}'".format(e, fmt))
             raise InvalidLogFormat()
 
     # multiple formats
@@ -259,10 +259,13 @@ def _validate_multi_format(ldebug, lerror, format):
     return rv
 
 
-def validate_order_ptrn(ptrn):
+def validate_order_ptrn(ldebug, lerror, ptrn):
     ldebug("validate_order_ptrn - '{}'".format(ptrn))
+    if not ptrn:
+        return
+
     try:
         return re.compile(ptrn)
     except Exception, e:
-        lerror("validate_order_ptrn - '{}'".format(str(e)))
+        lerror("validate_order_ptrn - '{}'".format(e))
         raise InvalidOrderPtrn()
