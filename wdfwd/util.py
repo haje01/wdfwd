@@ -206,7 +206,18 @@ class InvalidLogFormat(Exception):
     pass
 
 
-def validate_format(ldebug, lerror, fmt):
+class InvalidOrderPtrn(Exception):
+    pass
+
+
+def validate_format(ldebug, lerror, fmt, multiline):
+    if not multiline:
+        return _validate_format(ldebug, lerror, fmt)
+    else:
+        return _validate_multi_format(ldebug, lerror, fmt)
+
+
+def _validate_format(ldebug, lerror, fmt):
     ldebug("validate_format {}".format(fmt))
     if not fmt:
         return None
@@ -215,12 +226,43 @@ def validate_format(ldebug, lerror, fmt):
         lerror("validate_format - not found 'dt_' part")
         raise InvalidLogFormat()
 
-    if ('(?P<_json_>' not in fmt) and ('(?P<_text_>' not in fmt):
-        lerror("validate_format - not found <_json_/_text_> part")
-        raise InvalidLogFormat()
+    # if ('(?P<_json_>' not in fmt) and ('(?P<_text_>' not in fmt):
+        # lerror("validate_format - not found <_json_/_text_> part")
+        # raise InvalidLogFormat()
 
     try:
         return re.compile(fmt)
     except Exception, e:
         lerror("validate_format '{}' - invalid format '{}'".format(str(e), fmt))
         raise InvalidLogFormat()
+
+
+def _validate_multi_format(ldebug, lerror, format):
+    def _compile_fmt(fmt):
+        try:
+            return re.compile(fmt)
+        except Exception, e:
+            lerror("_validate_multi_format '{}' - invalid format '{}'".format(str(e), fmt))
+            raise InvalidLogFormat()
+
+    # multiple formats
+    if type(format) is dict:
+        rv = {}
+        for k, fs in format.iteritems():
+            if hasattr(fs, '__iter__'):
+                srv = [_compile_fmt(f) for f in fs]
+                rv[k] = srv
+            else:
+                rv[k] = _compile_fmt(fs)
+    else:
+        rv = _compile_fmt(format)
+    return rv
+
+
+def validate_order_ptrn(ptrn):
+    ldebug("validate_order_ptrn - '{}'".format(ptrn))
+    try:
+        return re.compile(ptrn)
+    except Exception, e:
+        lerror("validate_order_ptrn - '{}'".format(str(e)))
+        raise InvalidOrderPtrn()

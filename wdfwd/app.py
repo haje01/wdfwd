@@ -45,7 +45,7 @@ def start_tailing():
     gformat = tailc.get('format')
     linfo("global format: '{}'".format(gformat))
     if gformat:
-        validate_format(ldebug, lerror, gformat)
+        validate_format(ldebug, lerror, gformat, False)
 
     if not fluent:
         lerror("no fluent server info. return")
@@ -70,6 +70,7 @@ def start_tailing():
             ptrn = filec['pattern']
             latest = filec.get('latest')
             format = filec.get('format')
+            order_ptrn = filec.get('order_ptrn')
             ldebug("file format: '{}'".format(format))
             if not format and gformat:
                 linfo("file format not exist. use global format instead")
@@ -85,7 +86,7 @@ def start_tailing():
                                 fluent_port, elatest=latest, encoding=file_enc,
                                 lines_on_start=lines_on_start,
                                 max_between_data=max_between_data,
-                                format=format)
+                                format=format, order_ptrn=order_ptrn)
             name = "tail{}".format(i+1)
             tailer.trd_name = name
             ldebug("create & start {} thread".format(name))

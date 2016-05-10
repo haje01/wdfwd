@@ -1,7 +1,9 @@
 import os
+import re
 import glob
 import time
 import threading
+import socket
 import logging
 from StringIO import StringIO
 import traceback
@@ -12,13 +14,13 @@ import pywintypes
 from fluent.sender import FluentSender, MAX_SEND_FAIL
 
 from wdfwd.util import OpenNoLock, get_fileid, escape_path, validate_format as\
-    _validate_format
+    _validate_format, validate_order_ptrn
 
-MAX_READ_BUF = 100 * 100
+MAX_READ_BUF = 1000 * 1000
 MAX_SEND_RETRY = 5
 SEND_TERM = 1       # 1 second
 UPDATE_TERM = 10    # 30 seconds
-MAX_BETWEEN_DATA = 100 * 100
+MAX_BETWEEN_DATA = 1000 * 1000
 
 
 class NoTargetFile(Exception):
@@ -125,14 +127,13 @@ class FileTailer(object):
                  send_term=SEND_TERM, update_term=UPDATE_TERM,
                  max_send_fail=None, elatest=None, echo=False, encoding=None,
                  lines_on_start=None, max_between_data=None, format=None,
-                 multiline=None):
+                 multiline=None, order_ptrn=None):
 
         self.trd_name = ""
         self.sender = None
         self.ldebug("__init__", "max_send_fail: '{}'".format(max_send_fail))
         self.bdir = bdir
         self.ptrn = ptrn
-        # self.rx = re.compile(ptrn)
         self.tag = tag
         self.target_path = self.target_fid = None
         self.send_term = send_term
@@ -157,7 +158,10 @@ class FileTailer(object):
         self.multiline = multiline if multiline else None
         self._reset_ml_msg()
         self.ldebug("effective format: '{}'".format(format))
-        self.format = self.validate_format(format)
+        self.format = self.validate_format(format, multiline)
+        self.pending_mlmsg = None
+        self.order_ptrn = validate_order_ptrn(order_ptrn) if order_ptrn else\
+            None
 
     def _reset_ml_msg(self):
         self.ml_msg = dict(message=[])
@@ -239,11 +243,12 @@ class FileTailer(object):
         self.ldebug("_update_elatest_target")
         epath, efid = self.get_elatest_info()
 
-        if self.elatest_fid is None:
-            if efid:
+        if efid:
+            # elatest handle updated only after handle_elatest_rotation
+            if self.elatest_fid is None:
                 # new elatest
                 self.elatest_fid = efid
-                files.append(epath)
+            files.append(epath)
 
     def handle_file_recreate(self, cur=None):
         ret = 0
@@ -278,7 +283,7 @@ class FileTailer(object):
 
         #  if elatest file has been changed
         if self.elatest_fid and efid != self.elatest_fid:
-            if not epath:
+            if not efid:
                 self.lwarning("handle_elatest_rotation",
                               "elatest file has been rotated, but new"
                               " elatest file not created yed.")
@@ -287,29 +292,43 @@ class FileTailer(object):
                               "elatest file has been rotated({} -> {})."
                               " update_target "
                               "immediately.".format(self.elatest_fid, efid))
+
             self.elatest_fid = None
-            files = glob.glob(os.path.join(self.bdir, self.ptrn))
-            # pre-elatest file should exist
+            # get pre-elatest, which should exist
+            files = self.get_sorted_target_files()
             if len(files) == 0:
                 self.lerror(1, "pre-elatest files are not exist!")
                 return True
-
             pre_elatest = files[-1]
-            if epath:
-                self.ldebug(1, "move sent pos & clear elatest sent pos")
-                # even elatest file not exist, there might be pos file
-                self._save_sent_pos(pre_elatest, self.get_sent_pos(epath))
-                # reset elatest sent_pos
-                self._save_sent_pos(epath, 0)
+
+            self.ldebug(1, "move sent pos & clear elatest sent pos")
+            # even elatest file not exist, there might be pos file
+            self._save_sent_pos(pre_elatest, self.get_sent_pos(epath))
+            # reset elatest sent_pos
+            self._save_sent_pos(epath, 0)
             self.last_update = cur
+            # pre-elatest is target for now
             self.set_target(pre_elatest)
             return True
         return False
 
+    def get_sorted_target_files(self):
+        files = glob.glob(os.path.join(self.bdir, self.ptrn))
+        for afile in files:
+            print afile
+        if self.order_ptrn:
+            order_key = {}
+            for afile in files:
+                gd = self.order_ptrn.search(afile).groupdict()
+                order_key[afile] = gd['date'] + ".{:06d}".format(int(gd['order']))
+            return sorted(files, key=lambda f: order_key[f])
+        else:
+            return files
+
     def update_target(self, start=False):
         self.ldebug("update_target")
 
-        files = glob.glob(os.path.join(self.bdir, self.ptrn))
+        files = self.get_sorted_target_files()
 
         if self.elatest is not None:
             self._update_elatest_target(files)
@@ -341,7 +360,7 @@ class FileTailer(object):
             tpath = self.target_path
         else:
             tpath = path
-        # self.ldebug("get_file_pos", "for {}".format(tpath))
+        self.ldebug("get_file_pos", "for {}".format(tpath))
         try:
             with OpenNoLock(tpath) as fh:
                 return win32file.GetFileSize(fh)
@@ -352,41 +371,43 @@ class FileTailer(object):
             self.lerror("get_file_pos", "{} - {}".format(err, tpath))
             raise
 
-    def validate_format(self, fmt):
-        return _validate_format(self.ldebug, self.lerror, fmt)
+    def validate_format(self, fmt, multiline):
+        return _validate_format(self.ldebug, self.lerror, fmt, multiline)
 
-    def convert_msg(self, msg):
+    def convert_msg(self, msg, return_unparsed=False):
         self.ldebug("convert_msg")
         if self.encoding:
             msg = msg.decode(self.encoding).encode('utf8')
 
+        parsed = False
         if self.format:
             self.ldebug(1, "try match format")
             match = self.format.search(msg)
             if match:
+                parsed = True
+                has_body = False
                 gd = match.groupdict()
-                parsed = False
 
                 if '_json_' in gd:
                     self.ldebug(1, "json data found")
+                    has_body = True
                     try:
                         msg = json.loads(gd['_json_'])
-                        parsed = True
                     except ValueError:
                         self.lerror("can't parse json data "
-                                    "'{}'".format(gd['json'][:100]))
-                        msg['message'] = gd['data']
-                        parsed = True
+                                    "'{}'".format(gd['_json_'][:50]))
+                        msg = {'message': gd['_json_']}
                 elif '_text_' in gd:
                     self.ldebug(1, "text data found")
+                    has_body = True
                     msg = {}
                     msg['message'] = gd['_text_']
-                    parsed = True
                 else:
-                    self.lwarning(1, "can't find json/data part at "
-                                  "'{}'".format(msg))
+                    self.ldebug(1, "can't find json/data part at "
+                                "'{}'".format(msg[:50]))
+                    msg = gd
 
-                if parsed:
+                if has_body:
                     for key in gd.keys():
                         if key[0] == '_' and key[-1] == '_':
                             continue
@@ -396,13 +417,16 @@ class FileTailer(object):
                                                          gd[key]))
                         msg[key] = gd[key]
             else:
-                self.ldebug(1, "can't parse line '{}'".format(msg))
-                # send it as raw data
-                msg = {'message': msg}
+                self.lwarning(1, "can't parse line '{}'".format(msg[:50]))
+                if return_unparsed:
+                    return msg, False
+                else:
+                    msg = None
         else:
             self.ldebug(1, "no format")
 
-        return msg
+        self.ldebug(1, "parsed: {}".format(parsed))
+        return msg, parsed
 
     def _read_target_to_end(self, fh):
         self.raise_if_notarget()
@@ -424,6 +448,7 @@ class FileTailer(object):
         return ''.join(lines), rbytes
 
     def get_elatest_info(self):
+        self.ldebug("get_elatst_info")
         if self.elatest:
             epath = os.path.join(self.bdir, self.elatest)
             efid = None
@@ -431,6 +456,8 @@ class FileTailer(object):
                 with OpenNoLock(epath) as fh:
                     efid = get_fileid(fh)
                     return epath, efid
+            else:
+                self.lwarning(1, "can not find elatest '{}'".format(epath))
         return None, None
 
     def may_send_newlines(self):
@@ -469,55 +496,104 @@ class FileTailer(object):
 
     def _iterate_multiline(self, lines):
         self.ldebug("_iterate_multiline")
+
         for line in lines.splitlines():
             if self.encoding:
                 line = line.decode(self.encoding).encode('utf8')
 
-            dt = None
-            level = None
-            if self.format:
-                self.ldebug(1, "try match format")
-                match = self.format.search(line)
-                if match:
-                    # multiline head
-                    # if prepending ml msg exists, send it
-                    if len(self.ml_msg['message']) > 0:
-                        self.ml_msg['message'] =\
-                            '\n'.join(self.ml_msg['message'])
-                        yield self.ml_msg
+            def _match_body_or_tail(line, fmt, parsed, lbody=False):
+                if hasattr(fmt, '__iter__'):
+                    assert len(fmt) == 2
+                    start_f = fmt[0]
+                    match = start_f.search(line)
+                    if match:
+                        parsed = True
+                        rv = match.groupdict()
+                        rs = match.end()
+                        repeat_f = fmt[1]
+                        match = repeat_f.findall(line[rs:])
+                        if match:
+                            for m in match:
+                                k, v = m[1], m[2]
+                                rv[k] = v
 
-                    self._reset_ml_msg()
-                    gd = match.groupdict()
-                    dt = gd['dt']
-                    level = gd['level']
-
-                    # multiline log must be plain text
-                    assert 'json' not in gd
-                    self.ml_msg['message'] = [gd['data']]
-                    self.ml_msg['dt_'] = dt
-                    self.ml_msg['lvl_'] = level
+                        if lbody:
+                            if 'lbody_' not in self.pending_mlmsg:
+                                self.pending_mlmsg['lbody_'] = []
+                            self.pending_mlmsg['lbody_'].append(rv)
+                        else:
+                            self.pending_mlmsg.update(rv)
                 else:
-                    # multiline tail
-                    if hasattr(self.ml_msg, 'message') and\
-                            len(self.ml_msg['message']) > 0:
-                        self.lerror("multiline message does not start "
-                                    "property! - '{}'".format(msg))
-                    else:
-                        self.ml_msg['message'].append(line)
+                    match = fmt.search(line)
+                    if match:
+                        parsed = True
+                        self.pending_mlmsg.update(match.groupdict())
+                return parsed
+
+            parsed = False
+            # dictionary format
+            if type(self.format) is dict:
+                # head
+                match = self.format['head'].search(line)
+                if match:
+                    parsed = True
+                    # send pending message
+                    if self.pending_mlmsg:
+                        yield self.pending_mlmsg
+                    self.pending_mlmsg = match.groupdict()
+                else:
+                    # tail
+                    if 'tail' in self.format:
+                        parsed = _match_body_or_tail(line, self.format['tail'], parsed)
+                    # body
+                    if not parsed and 'lbody' in self.format:
+                        parsed = _match_body_or_tail(line, self.format['lbody'], parsed, True)
+            # line format
             else:
-                assert 'multiline must have format'
+                msg, parsed = self.convert_msg(line, True)
+                # head
+                if parsed:
+                    # send pending message
+                    if self.pending_mlmsg:
+                        if 'tail_' in self.pending_mlmsg:
+                            self.pending_mlmsg['tail_'] = '\n'.join(self.pending_mlmsg['tail_'])
+                        yield self.pending_mlmsg
+
+                    self.pending_mlmsg = msg
+                elif msg:
+                    # no format
+                    if 'tail_' not in self.pending_mlmsg:
+                        self.pending_mlmsg['tail_'] = []
+                    # append raw message
+                    self.pending_mlmsg['tail_'].append(msg)
+
+    def attach_msg_extra(self, msg):
+        if type(msg) is dict:
+            name = socket.gethostname()
+            msg['sname_'] = name
+            msg['saddr_'] = socket.gethostbyname(name)
+            return msg
+        else:
+            return msg
 
     def _iterate_line(self, lines):
         self.ldebug("_iterate_line")
         for line in lines.splitlines():
-            yield self.convert_msg(line)
+            if len(line) > 0:
+                yield self.attach_msg_extra(self.convert_msg(line)[0])
 
-    def _may_send_newlines(self, lines, rbytes, scnt):
+    def _may_send_newlines(self, lines, rbytes=None, scnt=0):
         self.ldebug("_may_send_newlines", "sending {} bytes..".format(rbytes))
+        if not rbytes:
+            rbytes = len(lines)
         try:
             itr = self._iterate_multiline(lines) if self.multiline else\
                 self._iterate_line(lines)
             for msg in itr:
+                if not msg:
+                    # skip bad form message (can't parse)
+                    self.ldebug("skip bad form message")
+                    continue
                 ts = int(time.time())
                 self.sender.emit_with_time("data", ts, msg)
                 self.may_echo(ts, msg)

@@ -102,7 +102,7 @@ class TableInfo(object):
         """Returns columns from the table."""
         if not con.sys_schema:
             tbname = self.name.split('.')[-1]
-        ldebug('build_columns %s', tbname)
+        ldebug('build_columns {}'.format(tbname))
         cols = []
         typs = []
         cmd = "SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='{}'"\
@@ -122,7 +122,7 @@ class TableInfo(object):
                 continue
             cols.append(col)
             typs.append(typ)
-            # ldebug("col: {} [{}]".format(str(col), typ))
+            # ldebug("col: {} [{}]".format(col, typ))
         if len(cols) < totalcol:
             self.str_cols = ', '.join(cols)
         self.columns = cols
@@ -249,7 +249,7 @@ def table_array(con, prefix):
     execute(con, cmd)
     ldebug('cmd: ' + cmd)
     rows = con.cursor.fetchall()
-    ldebug('rowcnt: %d', len(rows))
+    ldebug('rowcnt: {}'.format(len(rows)))
     res = []
     if rows is not None:
         res = sorted([row[0] for row in rows])
@@ -335,7 +335,7 @@ def get_table_date(con, tbname):
 
 def _dump_table(dcfg, decode_map, con, tbinfo, date, max_fetch):
     """Dump (sub)tables to files and returns table name."""
-    linfo("dump subtable: %s", tbinfo)
+    linfo("dump subtable: {}".format(tbinfo))
     folder = dcfg['folder']
     path = os.path.join(folder, get_dump_fname(tbinfo, date))
 
@@ -354,8 +354,8 @@ def _dump_table(dcfg, decode_map, con, tbinfo, date, max_fetch):
                     try:
                         cr = _row_as_strings(row, tbinfo)
                     except UnicodeDecodeError:
-                        lerror("UnicodeDecodeError for %s row %d" % (tbinfo,
-                                                                     i))
+                        lerror("UnicodeDecodeError for {} row "
+                               "{}".format(tbinfo, i))
                         global conv_map
                         lerror(str(conv_map[tbinfo]))
                     else:
@@ -379,7 +379,7 @@ def dump_tables(dcfg, con, tables, max_fetch=None):
     dumped_tables = []
     decode_map = _make_decode_map(dcfg)
     for tbinfo in tables:
-        linfo("dump table: %s", tbinfo)
+        linfo("dump table: {}".format(tbinfo))
         dumped = _dump_table(dcfg, decode_map, con, tbinfo, None, max_fetch)
         if dumped is not None:
             dumped_tables.append(dumped)
@@ -454,11 +454,8 @@ def daily_tables_by_change(dcfg, con, skip_last_subtable=None):
         for table in tables:
             oldcnt = res.get(str(table), -1)
             curcnt = get_table_rowcnt(con, table)
-            ldebug(
-                "check row cnt for '%s' %d - %d",
-                table,
-                oldcnt,
-                curcnt)
+            ldebug("check row cnt for '{}' {} - {}".format(table, oldcnt,
+                                                           curcnt))
             if oldcnt != curcnt:
                 ldebug('append')
                 tmp.append(table)
@@ -498,7 +495,7 @@ def write_table_info(dcfg, dumped_tables):
                 cnt = get_table_rowcnt(con, table)
             result[str(table)] = cnt
 
-    linfo('writing %s', rpath)
+    linfo('writing {}'.format(rpath))
     with open(rpath, 'w') as f:
         f.write(yaml.dump(result, default_flow_style=False))
     return rpath
