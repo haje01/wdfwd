@@ -46,6 +46,7 @@ class TailThread(threading.Thread):
         _log(self.tailer.sender, 'error', tabfunc, msg)
 
     def run(self):
+        self.ldebug("start run")
         self.tailer.update_target(True)
 
         while True:
@@ -134,6 +135,10 @@ class FileTailer(object):
         self.ldebug("__init__", "max_send_fail: '{}'".format(max_send_fail))
         self.bdir = bdir
         self.ptrn = ptrn
+        self.sname = socket.gethostname()
+        self.saddr = socket.gethostbyname(self.sname)
+        tag = "{}.{}".format(self.sname.lower(), tag)
+        self.ldebug(1, "tag: '{}'".format(tag))
         self.tag = tag
         self.target_path = self.target_fid = None
         self.send_term = send_term
@@ -179,12 +184,18 @@ class FileTailer(object):
             raise NoTargetFile()
 
     def _tmain_may_update_target(self, cur):
+        # self.ldebug("_tmain_may_update_target")
         if cur - self.last_update >= self.update_term:
+            # self.ldebug(1, "{} > {}".format(cur - self.last_update,
+            #                                 self.update_term))
             self.last_update = cur
             self.update_target()
 
     def _tmain_may_send_newlines(self, cur, scnt, netok):
+        # self.ldebug("_tmain_may_send_newlines")
         if cur - self.last_send_try >= self.send_term:
+            # self.ldebug(1, "{} >= {}".format(cur - self.last_send_try,
+            #                                 self.send_term))
             try:
                 self.last_send_try = cur
                 scnt = self.may_send_newlines()
@@ -202,6 +213,7 @@ class FileTailer(object):
 
     def tmain(self):
         cur = time.time()
+        # self.ldebug("tmain {}".format(cur))
 
         # send new lines when need
         sent_line = 0
@@ -226,6 +238,7 @@ class FileTailer(object):
 
     def set_target(self, target):
         changed = self.target_path != target
+        self.ldebug("set_target from '{}' to '{}'".format(self.target_path, target))
         if changed:
             self.target_path = target
             self.target_fid = None
@@ -299,6 +312,7 @@ class FileTailer(object):
                 self.lerror(1, "pre-elatest files are not exist!")
                 return True
             pre_elatest = files[-1]
+            self.ldebug("pre-elatest is '{}'".format(pre_elatest))
 
             self.ldebug(1, "move sent pos & clear elatest sent pos")
             # even elatest file not exist, there might be pos file
@@ -314,8 +328,6 @@ class FileTailer(object):
     def get_sorted_target_files(self):
         self.ldebug("get_sorted_target_files")
         files = glob.glob(os.path.join(self.bdir, self.ptrn))
-        for afile in files:
-            print afile
         if self.order_ptrn:
             order_key = {}
             for afile in files:
@@ -326,6 +338,7 @@ class FileTailer(object):
                     continue
                 gd = match.groupdict()
                 order_key[afile] = gd['date'] + ".{:06d}".format(int(gd['order']))
+                self.ldebug("order_key - {}".format(order_key[afile]))
             return sorted(files, key=lambda f: order_key[f])
         else:
             return files
@@ -334,6 +347,7 @@ class FileTailer(object):
         self.ldebug("update_target")
 
         files = self.get_sorted_target_files()
+        self.ldebug(1, "{} target files".format(len(files)))
 
         if self.elatest is not None:
             self._update_elatest_target(files)
@@ -365,7 +379,7 @@ class FileTailer(object):
             tpath = self.target_path
         else:
             tpath = path
-        self.ldebug("get_file_pos", "for {}".format(tpath))
+        # self.ldebug("get_file_pos", "for {}".format(tpath))
         try:
             with OpenNoLock(tpath) as fh:
                 return win32file.GetFileSize(fh)
@@ -577,9 +591,8 @@ class FileTailer(object):
 
     def attach_msg_extra(self, msg):
         if type(msg) is dict:
-            name = socket.gethostname()
-            msg['sname_'] = name
-            msg['saddr_'] = socket.gethostbyname(name)
+            msg['sname_'] = self.sname
+            msg['saddr_'] = self.saddr
             return msg
         else:
             return msg
