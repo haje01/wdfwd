@@ -19,11 +19,15 @@ from wdfwd.util import OpenNoLock, get_fileid, escape_path, validate_format as\
 MAX_READ_BUF = 1000 * 1000
 MAX_SEND_RETRY = 5
 SEND_TERM = 1       # 1 second
-UPDATE_TERM = 10    # 30 seconds
+UPDATE_TERM = 5     # 5 seconds
 MAX_BETWEEN_DATA = 1000 * 1000
 
 
 class NoTargetFile(Exception):
+    pass
+
+
+class LatestFileChanged(Exception):
     pass
 
 
@@ -223,13 +227,24 @@ class FileTailer(object):
         if not self.elatest:
             latest_rot = self.handle_file_recreate(cur)
         else:
-            latest_rot = self.handle_elatest_rotation(cur)
+            try:
+                latest_rot = self.handle_elatest_rotation(cur)
+            except pywintypes.error, e:
+                self.lerror("File '{}' open error - {}".format(epath, e))
+                self.lwarning("Skip to next turn")
+                return
 
         psent_pos = self.get_sent_pos() if self.target_path else None
 
         if self.target_path:
-            sent_line, netok = self._tmain_may_send_newlines(cur, sent_line,
-                                                             netok)
+            try:
+                sent_line, netok = self._tmain_may_send_newlines(cur,
+                                                                 sent_line,
+                                                                 netok)
+            except LatestFileChanged:
+                # delegate to handle_elatest_rotation
+                self.lwarning("Possibly latest file has been rotated")
+                return
 
         # if nothing sent with net ok, try update target timely
         if not latest_rot and (sent_line == 0 and netok):
@@ -238,8 +253,9 @@ class FileTailer(object):
 
     def set_target(self, target):
         changed = self.target_path != target
-        self.ldebug("set_target from '{}' to '{}'".format(self.target_path, target))
         if changed:
+            self.ldebug("set_target from '{}' to '{}'".format(self.target_path,
+                                                              target))
             self.target_path = target
             self.target_fid = None
             if target:
@@ -338,7 +354,7 @@ class FileTailer(object):
                     continue
                 gd = match.groupdict()
                 order_key[afile] = gd['date'] + ".{:06d}".format(int(gd['order']))
-                self.ldebug("order_key - {}".format(order_key[afile]))
+                # self.ldebug("order_key - {}".format(order_key[afile]))
             return sorted(files, key=lambda f: order_key[f])
         else:
             return files
@@ -403,7 +419,7 @@ class FileTailer(object):
 
         parsed = False
         if self.format:
-            self.ldebug(1, "try match format")
+            # self.ldebug(1, "try match format")
             match = self.format.search(msg)
             if match:
                 parsed = True
@@ -495,6 +511,8 @@ class FileTailer(object):
             if sent_pos > file_pos:
                 self.lerror("sent_pos {} > file_pos {}. cache"
                             " bug?".format(sent_pos, file_pos))
+                if self.elatest:
+                    raise LatestFileChanged()
             return 0
 
         # sent_pos = self._clamp_sent_pos(file_pos, sent_pos)
