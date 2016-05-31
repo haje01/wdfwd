@@ -1,5 +1,4 @@
 import os
-import re
 import glob
 import time
 import threading
@@ -21,6 +20,9 @@ MAX_SEND_RETRY = 5
 SEND_TERM = 1       # 1 second
 UPDATE_TERM = 5     # 5 seconds
 MAX_BETWEEN_DATA = 1000 * 1000
+FMT_NO_BODY = 0
+FMT_JSON_BODY = 1
+FMT_TEXT_BODY = 2
 
 
 class NoTargetFile(Exception):
@@ -168,8 +170,17 @@ class FileTailer(object):
         self._reset_ml_msg()
         self.ldebug("effective format: '{}'".format(format))
         self.format = self.validate_format(format, multiline)
+        self.fmt_body = self.format_body_type(format)
         self.pending_mlmsg = None
         self.order_ptrn = self.validate_order_ptrn(order_ptrn)
+
+    def format_body_type(self, format):
+        if format:
+            if '_json_' in format:
+                return FMT_JSON_BODY
+            elif '_text_' in format:
+                return FMT_TEXT_BODY
+        return FMT_NO_BODY
 
     def _reset_ml_msg(self):
         self.ml_msg = dict(message=[])
@@ -228,7 +239,8 @@ class FileTailer(object):
             latest_rot = self.handle_file_recreate(cur)
         else:
             try:
-                latest_rot = self.handle_elatest_rotation(cur)
+                epath = os.path.join(self.bdir, self.elatest)
+                latest_rot = self.handle_elatest_rotation(epath, cur)
             except pywintypes.error, e:
                 self.lerror("File '{}' open error - {}".format(epath, e))
                 self.lwarning("Skip to next turn")
@@ -301,9 +313,10 @@ class FileTailer(object):
             self.set_target(None)
         return ret
 
-    def handle_elatest_rotation(self, cur=None):
+    def handle_elatest_rotation(self, epath=None, cur=None):
         cur = cur if cur else int(time.time())
-        epath = os.path.join(self.bdir, self.elatest)
+        if not epath:
+            epath = os.path.join(self.bdir, self.elatest)
         efid = None
         if os.path.isfile(epath):
             with OpenNoLock(epath) as fh:
@@ -353,7 +366,8 @@ class FileTailer(object):
                                   "'{}'".format(afile))
                     continue
                 gd = match.groupdict()
-                order_key[afile] = gd['date'] + ".{:06d}".format(int(gd['order']))
+                order_key[afile] = gd['date'] +\
+                    ".{:06d}".format(int(gd['order']))
                 # self.ldebug("order_key - {}".format(order_key[afile]))
             return sorted(files, key=lambda f: order_key[f])
         else:
@@ -412,6 +426,44 @@ class FileTailer(object):
     def validate_order_ptrn(self, fmt):
         return _validate_order_ptrn(self.ldebug, self.lerror, fmt)
 
+    def _convert_matched_msg(self, match):
+        parsed = True
+        has_body = False
+        gd = match.groupdict()
+
+        if self.fmt_body == FMT_JSON_BODY:
+            if '_json_' in gd:
+                self.ldebug(1, "json data found")
+                has_body = True
+                try:
+                    msg = json.loads(gd['_json_'])
+                except ValueError:
+                    self.lerror("can't parse json data "
+                                "'{}'".format(gd['_json_'][:50]))
+                    msg = {'message': gd['_json_']}
+            else:
+                self.lwarning(1, "no json body found: {}'".format(msg[:50]))
+        elif self.fmt_body == FMT_TEXT_BODY:
+            if '_text_' in gd:
+                self.ldebug(1, "text data found")
+                has_body = True
+                msg = {}
+                msg['message'] = gd['_text_']
+            else:
+                self.lwarning(1, "no text body found: '{}'".format(msg[:50]))
+        else:
+            msg = gd
+
+        if has_body:
+            for key in gd.keys():
+                if key[0] == '_' and key[-1] == '_':
+                    continue
+                if key in msg.keys():
+                    self.lwarning(1, "'{}' is overwritten from '{}' to "
+                                  "'{}'".format(key, msg[key], gd[key]))
+                msg[key] = gd[key]
+        return msg, parsed
+
     def convert_msg(self, msg, return_unparsed=False):
         self.ldebug("convert_msg")
         if self.encoding:
@@ -422,38 +474,7 @@ class FileTailer(object):
             # self.ldebug(1, "try match format")
             match = self.format.search(msg)
             if match:
-                parsed = True
-                has_body = False
-                gd = match.groupdict()
-
-                if '_json_' in gd:
-                    self.ldebug(1, "json data found")
-                    has_body = True
-                    try:
-                        msg = json.loads(gd['_json_'])
-                    except ValueError:
-                        self.lerror("can't parse json data "
-                                    "'{}'".format(gd['_json_'][:50]))
-                        msg = {'message': gd['_json_']}
-                elif '_text_' in gd:
-                    self.ldebug(1, "text data found")
-                    has_body = True
-                    msg = {}
-                    msg['message'] = gd['_text_']
-                else:
-                    self.ldebug(1, "can't find json/data part at "
-                                "'{}'".format(msg[:50]))
-                    msg = gd
-
-                if has_body:
-                    for key in gd.keys():
-                        if key[0] == '_' and key[-1] == '_':
-                            continue
-                        if key in msg.keys():
-                            self.lwarning(1, "'{}' is overwritten from '{}' to"
-                                          " '{}'".format(key, msg[key],
-                                                         gd[key]))
-                        msg[key] = gd[key]
+                msg, parsed = self._convert_matched_msg(match)
             else:
                 self.lwarning(1, "can't parse line '{}'".format(msg[:50]))
                 if return_unparsed:
@@ -584,10 +605,13 @@ class FileTailer(object):
                 else:
                     # tail
                     if 'tail' in self.format:
-                        parsed = _match_body_or_tail(line, self.format['tail'], parsed)
+                        parsed = _match_body_or_tail(line, self.format['tail'],
+                                                     parsed)
                     # body
                     if not parsed and 'lbody' in self.format:
-                        parsed = _match_body_or_tail(line, self.format['lbody'], parsed, True)
+                        parsed = _match_body_or_tail(line,
+                                                     self.format['lbody'],
+                                                     parsed, True)
             # line format
             else:
                 msg, parsed = self.convert_msg(line, True)
@@ -596,7 +620,8 @@ class FileTailer(object):
                     # send pending message
                     if self.pending_mlmsg:
                         if 'tail_' in self.pending_mlmsg:
-                            self.pending_mlmsg['tail_'] = '\n'.join(self.pending_mlmsg['tail_'])
+                            self.pending_mlmsg['tail_'] =\
+                                '\n'.join(self.pending_mlmsg['tail_'])
                         yield self.pending_mlmsg
 
                     self.pending_mlmsg = msg

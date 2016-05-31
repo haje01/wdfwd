@@ -34,11 +34,11 @@ log:
 
 
 tailing:
-    max_between_data: # skip between data larger than this size. default) 10000
+    max_between_data: # skip between data larger than this size. default) 1000000
     file_encoding: # target file encoding  ex) cp949
     pos_dir: # TAIL-POS-FOLDER-PATH ex) C:\wdfwd-temp
     format: # regular expression for log line. 
-            # 'dt_' and ('_json_' or '_text_') arg mandatory fields. 
+            # 'dt_' and ('_json_' or '_text_')
             # ex) '(?P<dt_>\d+-\d+-\d+ \d+:\d+:\S+)\s(?P<level>\S+):\s(?P<_json_>.+)'
     order_ptrn: # explicit name pattern for file ordering
                 # need only when ordering number not starts with '0'

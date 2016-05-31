@@ -7,7 +7,9 @@ from croniter import croniter
 
 from wdfwd.get_config import get_config
 from wdfwd.tail import FileTailer, TailThread, SEND_TERM, UPDATE_TERM
-from wdfwd.util import ldebug, linfo, lerror, validate_format, validate_order_ptrn
+from wdfwd.util import ldebug, linfo, lerror, validate_format,\
+    validate_order_ptrn
+from wdfwd.sync import sync_file
 
 
 cfg = get_config()
@@ -76,22 +78,32 @@ def start_tailing():
             ptrn = filec['pattern']
             latest = filec.get('latest')
             format = filec.get('format')
+            order_ptrn = filec.get('order_ptrn')
             ldebug("file format: '{}'".format(format))
             if not format and gformat:
                 linfo("file format not exist. use global format instead")
                 format = gformat
+            if order_ptrn is None and gorder_ptrn:
+                linfo("file order_ptrn not exist. use global order_ptrn "
+                      "instead")
+                order_ptrn = gorder_ptrn
             tag = filec['tag']
             send_term = filec.get('send_term', SEND_TERM)
             update_term = filec.get('update_term', UPDATE_TERM)
-            ldebug("start file tail - bdir: '{}', ptrn: '{}', tag:"
-                          "'{}', pos_dir: '{}', fluent: '{}', latest: "
-                          "'{}'".format(bdir, ptrn, tag, pos_dir, fluent,
-                                        latest))
+            ldebug("start file tail - bdir: '{}', ptrn: '{}', tag: '{}', "
+                   "pos_dir: '{}', fluent: '{}', latest: '{}'".format(bdir,
+                                                                      ptrn,
+                                                                      tag,
+                                                                      pos_dir,
+                                                                      fluent,
+                                                                      latest))
             tailer = FileTailer(bdir, ptrn, tag, pos_dir, fluent_ip,
-                                fluent_port, elatest=latest, encoding=file_enc,
+                                fluent_port, send_term=send_term,
+                                update_term=update_term, elatest=latest,
+                                encoding=file_enc,
                                 lines_on_start=lines_on_start,
                                 max_between_data=max_between_data,
-                                format=format, order_ptrn=gorder_ptrn)
+                                format=format, order_ptrn=order_ptrn)
             name = "tail{}".format(i+1)
             tailer.trd_name = name
             ldebug("create & start {} thread".format(name))
@@ -187,7 +199,6 @@ def _sync_file(scfg):
     path = scfg['filepath']
     to_url = scfg['to_url']
     ldebug("Sync single file: {} {}".format(path, to_url))
-    from wdfwd.sync import sync_file
     sync_file(path, to_url)
 
 
