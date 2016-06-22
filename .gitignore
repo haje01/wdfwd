@@ -1,0 +1,14 @@
+.*.swp
+*.pyc
+.cache/
+.ropeproject/
+*.log
+*.*~
+*.txt.*
+*.zip
+*.txt
+wdfwd/tests/tpos
+wdfwd/build/
+wdfwd/dist/
+wdfwd/test_dist/
+_*.yml

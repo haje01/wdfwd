@@ -7,6 +7,7 @@ import logging
 from StringIO import StringIO
 import traceback
 import json
+import msgpack
 
 import win32file
 import pywintypes
@@ -23,6 +24,7 @@ MAX_BETWEEN_DATA = 1000 * 1000
 FMT_NO_BODY = 0
 FMT_JSON_BODY = 1
 FMT_TEXT_BODY = 2
+BULK_SEND_SIZE = 100
 
 
 class NoTargetFile(Exception):
@@ -530,8 +532,8 @@ class FileTailer(object):
         # self.ldebug("file_pos {}, sent_pos {}".format(file_pos, sent_pos))
         if sent_pos >= file_pos:
             if sent_pos > file_pos:
-                self.lerror("sent_pos {} > file_pos {}. cache"
-                            " bug?".format(sent_pos, file_pos))
+                self.lerror("sent_pos {} > file_pos {}. pos"
+                            " mismatch".format(sent_pos, file_pos))
                 if self.elatest:
                     raise LatestFileChanged()
             return 0
@@ -646,6 +648,19 @@ class FileTailer(object):
             if len(line) > 0:
                 yield self.attach_msg_extra(self.convert_msg(line)[0])
 
+
+    def _send_newline(self, msg, msgs):
+        ts = int(time.time())
+        self.may_echo(ts, msg)
+        if not BULK_SEND_SIZE:
+            self.sender.emit_with_time("data", ts, msg)
+        else:
+            msgs.append((ts, msg))
+            if len(msgs) >= BULK_SEND_SIZE:
+                bytes_ = self._make_bulk_packet("data", msgs)
+                self.sender._send(bytes_)
+                msgs[:] = []
+
     def _may_send_newlines(self, lines, rbytes=None, scnt=0):
         self.ldebug("_may_send_newlines", "sending {} bytes..".format(rbytes))
         if not rbytes:
@@ -653,15 +668,19 @@ class FileTailer(object):
         try:
             itr = self._iterate_multiline(lines) if self.multiline else\
                 self._iterate_line(lines)
+            msgs = []
             for msg in itr:
                 if not msg:
                     # skip bad form message (can't parse)
                     self.ldebug("skip bad form message")
                     continue
-                ts = int(time.time())
-                self.sender.emit_with_time("data", ts, msg)
-                self.may_echo(ts, msg)
+                self._send_newline(msg, msgs)
                 scnt += 1
+
+            # send remail bulk msgs
+            if BULK_SEND_SIZE and len(msgs) > 0:
+                bytes_ = self._make_bulk_packet("data", msgs)
+                self.sender._send(bytes_)
         except Exception, e:
             self.lwarning(1, "send fail '{}'".format(e))
             self.send_retry += 1
@@ -675,6 +694,11 @@ class FileTailer(object):
                             " Bytes)!!".format(rbytes))
         self.send_retry = 0
         return scnt
+
+    def _make_bulk_packet(self, label, msgs):
+        tag = '.'.join((self.tag, label))
+        bulk = [msgpack.packb((tag, ts, data)) for ts, data in msgs]
+        return ''.join(bulk)
 
     def may_echo(self, ts, line):
         if self.echo_file:
