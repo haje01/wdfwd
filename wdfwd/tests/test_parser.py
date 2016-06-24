@@ -24,13 +24,103 @@ hi there
     match = re.compile(r'%\(([^)]+)\)').search("\[%(\d+)\]")
     b, e = match.span()
     txt = "{}{}{}".format(txt[:b], "(?P<{}>{})".format("pname" , match.groups()[0]), txt[e:])
-    import pdb; pdb.set_trace()  # XXX BREAKPOINT
-    pass
 
 
+def test_parser_cardinal():
+    ctx = ps.Context()
+    ctx.Token('num', r'\d+')
+    part = ctx.Part(r'%{num}')
+    taken, _ = part.parse("1")
+    assert taken['num'] == '1'
+
+    ctx.Token('num2', r'\s*%(\d+)')
+    seq = ctx.Sequence(ctx.Part(r'%{num}'), ctx.Part(r'%{num2}'))
+
+    taken, msg = seq.parse("abc 456")
+    assert len(taken) == 0
+    assert msg == 'abc 456'
+
+    seq.reset()
+    taken, msg = seq.parse("123 456")
+    assert taken['num'] == '123'
+    assert taken['num2'] == '456'
+    assert msg == ''
+
+    seq.reset()
+    taken, msg = seq.parse("123 abc")
+    assert taken['num'] == '123'
+    assert 'num2' not in taken
+    assert msg == ' abc'
+
+    ctx.Token('alpha', '[a-z]+')
+    cho = ctx.Choice(ctx.Part('%{num}'), ctx.Part('%{alpha}'))
+    taken, msg = cho.parse('123 abc')
+    assert taken['num'] == '123'
+    assert 'alpha' not in taken
+
+    taken, msg = cho.parse('abc def')
+    assert taken['alpha'] == 'abc'
+    assert msg == ' def'
+
+    ctx.Token('alpha2', '\s*%([a-z]+)')
+    cho = ctx.Choice(
+        ctx.Sequence(ctx.Part('%{num}'), ctx.Part('%{alpha}')),
+        ctx.Sequence(ctx.Part('%{alpha2}'), ctx.Part('%{num2}'))
+    )
+    taken, msg = cho.parse('abc 123')
+    assert 'num' not in taken
+    assert 'alpha' not in taken
+    assert taken['alpha2'] == 'abc'
+    assert taken['num2'] == '123'
+
+    seq = ctx.Sequence(
+        ctx.Choice(ctx.Part('%{alpha}'), ctx.Part('%{num}')),
+        ctx.Choice(ctx.Part('%{num2}'), ctx.Part('%{alpha2}')),
+    )
+    taken, msg = seq.parse("123 abc")
+    assert 'num' in taken
+    assert 'alpha2' in taken
+    assert 'num2' not in taken
 
 
-SAMPLE_FCS1 = """Log file created at: 2016/03/24 09:26:51
+def test_parser_fcs():
+    ctx = ps.Context()
+    ctx.Token("time", r'\d{2}:\d{2}:\d{2}\.\d+')
+    ctx.Token("errcode", r'E\d+')
+    ctx.Token("code", r'\d+')
+    ctx.Token("srcfile", r'\w+\.\w+')
+    ctx.Token("srcline", r'\d+')
+    ctx.Group("srcinfo", r'%{srcfile}:%{srcline}')
+    ctx.Token("msg", r'.*')
+    ctx.Token("method", r'\s*\[%((\w+))\]')
+    ctx.Token("key", r'\s*%(\w+)\s*')
+    ctx.Token("value", r'\s*%([\w\.]+)\s*')
+    ctx.Group("keyvalue", r'%{key} : %{value}')
+
+    scm = ctx.Choice(
+        ctx.Part(r'%{errcode} %{time}  %{code} %{srcinfo}\] %{msg}\n%{method}\n@{%{keyvalue}\n?}'),
+        ctx.Part(r'%{errcode} %{time}  %{code} %{srcinfo}\] %{msg}')
+    )
+    res = scm.parse("E0324 09:26:51.754881  2708 fcs_client.cpp:225] connection closed : 997")
+    assert len(res) == 6
+
+    res = fmt.parse("""E0325 09:37:45.272496  1240 communicator.hpp:92] [59948] fail to receive. timeout
+ [RequestGetPCRoomGuid]
+  packet_length : 23
+  packet_type : 0x34
+  transaction_id : 59948
+  client_ip : 211.226.71.155""")
+    assert 'transaction_id' in res.keys()
+    assert 'packet_type' in res.keys()
+    assert 'client_ip' in res.keys()
+
+    ctx.Sequence(
+        ctx.Part(r'%{errcode} %{time}  %{code} %{srcinfo}\] %{msg}'),
+        ctx.ZeroOrMore('\n%{method}\n@{%{keyvalue}\n', prefix_by='method'),
+        ctx.RepeatGroup(start='\n%{method}', body='\n@{%{keyvalue}\n?}',
+                        body_prefix_by='method')
+    )
+    SAMPLE_FCS1 = """Log file created at: 2016/03/24 09:26:51
 Running on machine: R2FLD037
 Log line format: [IWEF]mmdd hh:mm:ss.uuuuuu threadid file:line] msg
 E0324 09:26:51.754881  2708 fcs_client.cpp:225] connection closed : 997
@@ -47,6 +137,7 @@ E0325 10:03:27.231928  2300 communicator.hpp:92] [61207] fail to receive. timeou
   packet_type : 0x34
   transaction_id : 61207
   client_ip : 61.107.34.25"""
+
 
 
 def test_parser_basic():
@@ -103,21 +194,21 @@ def test_parser_basic():
     assert token.parse("  keyname  ") == "keyname"
     ctx.Token("value", r'\s*%([\w\.]+)\s*')
     ctx.Group("keyvalue", r'%{key} : %{value}')
-    l_repeat = ctx.Line('begin @{%{keyvalue},?} mid @{%{keyvalue},?} end')
-    assert len(l_repeat.ptrns) == 5
-    res = l_repeat.parse("begin aaa : 1, bbb : 2 mid ccc : 3 end")
+    p_repeat = ctx.Part('begin @{%{keyvalue},?} mid @{%{keyvalue},?} end')
+    assert len(p_repeat.ptrns) == 5
+    res = p_repeat.parse("begin aaa : 1, bbb : 2 mid ccc : 3 end")
     assert res['aaa'] == '1'
     assert res['bbb'] == '2'
     assert res['ccc'] == '3'
 
-    l_one_head = ctx.Line(r'%{errcode} %{timem}  %{code} %{srcinfo}\] %{msg}')
-    res = l_one_head.parse("E0324 09:26:51.754881  2708 fcs_client.cpp:225] connection closed : 997")
+    p_onp_head = ctx.Part(r'%{errcode} %{timem}  %{code} %{srcinfo}\] %{msg}')
+    res = p_onp_head.parse("E0324 09:26:51.754881  2708 fcs_client.cpp:225] connection closed : 997")
     assert 'errcode' in res
     assert len(res) == 7
     assert res['srcline'] == '225'
 
-    l_keyvalue = ctx.Line(r'@{%{keyvalue}}')
-    res = l_keyvalue.parse("packet_length : 23")
+    p_keyvalue = ctx.Part(r'@{%{keyvalue}}')
+    res = p_keyvalue.parse("packet_length : 23")
     assert 'packet_length' in res.keys()
     assert res['packet_length'] == '23'
 
@@ -128,8 +219,8 @@ def test_parser_basic():
   packet_type : 0x34
   transaction_id : 61207
   client_ip : 61.107.34.25"""
-    line = ctx.Line("%{errcode} %{timem}  %{code} %{srcinfo}\] %{brnum} %{msg}\n %{brname}\n@{%{keyvalue}\n?}")
-    line.parse(SAMPLE)
+    elm = ctx.Part("%{errcode} %{timem}  %{code} %{srcinfo}\] %{brnum} %{msg}\n %{brname}\n@{%{keyvalue}\n?}")
+    elm.parse(SAMPLE)
     assert ctx.values['brnum'] == '61207'
     assert ctx.values['packet_type'] == '0x34'
     assert ctx.values['packet_length'] == '21'
@@ -160,8 +251,8 @@ E0324 11:37:52.508764  3304 communicator.hpp:128] [8371] response sync
   account_type : 0x00
   block_state : 0x00
   pcbang_index : 0
-  phone_auth :
-  is_phone_auth : 0
+  phonp_auth :
+  is_phonp_auth : 0
   auth_ip : """
 
 SAMPLE_KRT = """BEGIN.IPCHECK
