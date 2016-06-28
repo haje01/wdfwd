@@ -38,7 +38,6 @@ test:
     force_today: '20140309'
 
 tailing:
-    pre_data_resend: 0
     max_between_data: 10000
     pos_dir: $WDFWD_DIR\wdfwd\tests\tpos
     from:
@@ -50,6 +49,12 @@ tailing:
             dir: $WDFWD_DIR\wdfwd\tests\tlog
             pattern: tailtest2_*-*-*.log
             tag: wdfwd.tail2
+        - file:
+            dir: $WDFWD_DIR\wdfwd\tests\tlog
+            pattern: FCSAdapter64.dll.log.*-*.*
+            tag: wdfwd.fcs
+            parser:
+                custom: FCS
     to:
         fluent: ['localhost', 24224]
 

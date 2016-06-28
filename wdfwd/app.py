@@ -10,6 +10,8 @@ from wdfwd.tail import FileTailer, TailThread, SEND_TERM, UPDATE_TERM
 from wdfwd.util import ldebug, linfo, lerror, validate_format,\
     validate_order_ptrn
 from wdfwd.sync import sync_file
+from wdfwd.parser import create_parser
+from wdfwd.parser import custom
 
 
 cfg = get_config()
@@ -50,6 +52,10 @@ def start_tailing():
     if gformat:
         validate_format(ldebug, lerror, gformat, False)
 
+    gparser = tailc.get('parser')
+    if gparser:
+        gparser = create_parser(gparser)
+
     gorder_ptrn = tailc.get('order_ptrn')
     ldebug("global order ptrn: '{}'".format(gorder_ptrn))
     if gorder_ptrn:
@@ -80,9 +86,20 @@ def start_tailing():
             format = filec.get('format')
             order_ptrn = filec.get('order_ptrn')
             ldebug("file format: '{}'".format(format))
+
+            if format and parser:
+                lerror("Can not use format & parser together!")
+                return
+            elif not format and not parser:
+                lerror("Need format or parser")
+                return
+
             if not format and gformat:
                 linfo("file format not exist. use global format instead")
                 format = gformat
+            if not parser and gparser:
+                linfo("parser not exist. use global parser instead")
+                parser = gparser
             if order_ptrn is None and gorder_ptrn:
                 linfo("file order_ptrn not exist. use global order_ptrn "
                       "instead")
@@ -103,7 +120,7 @@ def start_tailing():
                                 encoding=file_enc,
                                 lines_on_start=lines_on_start,
                                 max_between_data=max_between_data,
-                                format=format, order_ptrn=order_ptrn)
+                                format=format, parser=parser, order_ptrn=order_ptrn)
             name = "tail{}".format(i+1)
             tailer.trd_name = name
             ldebug("create & start {} thread".format(name))

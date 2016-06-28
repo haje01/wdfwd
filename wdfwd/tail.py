@@ -136,7 +136,7 @@ class FileTailer(object):
                  send_term=SEND_TERM, update_term=UPDATE_TERM,
                  max_send_fail=None, elatest=None, echo=False, encoding=None,
                  lines_on_start=None, max_between_data=None, format=None,
-                 multiline=None, order_ptrn=None):
+                 parser=None, order_ptrn=None):
 
         self.trd_name = ""
         self.sender = None
@@ -168,11 +168,11 @@ class FileTailer(object):
         self.lines_on_start = lines_on_start if lines_on_start else 0
         self.max_between_data = max_between_data if max_between_data else\
             MAX_BETWEEN_DATA
-        self.multiline = multiline if multiline else None
         self._reset_ml_msg()
         self.ldebug("effective format: '{}'".format(format))
-        self.format = self.validate_format(format, multiline)
+        self.format = self.validate_format(format)
         self.fmt_body = self.format_body_type(format)
+        self.parser = parser
         self.pending_mlmsg = None
         self.order_ptrn = self.validate_order_ptrn(order_ptrn)
 
@@ -422,8 +422,8 @@ class FileTailer(object):
             self.lerror("get_file_pos", "{} - {}".format(err, tpath))
             raise
 
-    def validate_format(self, fmt, multiline):
-        return _validate_format(self.ldebug, self.lerror, fmt, multiline)
+    def validate_format(self, fmt):
+        return _validate_format(self.ldebug, self.lerror, fmt)
 
     def validate_order_ptrn(self, fmt):
         return _validate_order_ptrn(self.ldebug, self.lerror, fmt)
@@ -468,6 +468,7 @@ class FileTailer(object):
 
     def convert_msg(self, msg, return_unparsed=False):
         self.ldebug("convert_msg")
+        msg = None
         if self.encoding:
             msg = msg.decode(self.encoding).encode('utf8')
 
@@ -481,8 +482,6 @@ class FileTailer(object):
                 self.lwarning(1, "can't parse line '{}'".format(msg[:50]))
                 if return_unparsed:
                     return msg, False
-                else:
-                    msg = None
         else:
             self.ldebug(1, "no format")
 
@@ -557,83 +556,6 @@ class FileTailer(object):
         self.save_sent_pos(sent_pos + rbytes)
         return scnt
 
-    def _iterate_multiline(self, lines):
-        self.ldebug("_iterate_multiline")
-
-        for line in lines.splitlines():
-            if self.encoding:
-                line = line.decode(self.encoding).encode('utf8')
-
-            def _match_body_or_tail(line, fmt, parsed, lbody=False):
-                if hasattr(fmt, '__iter__'):
-                    assert len(fmt) == 2
-                    start_f = fmt[0]
-                    match = start_f.search(line)
-                    if match:
-                        parsed = True
-                        rv = match.groupdict()
-                        rs = match.end()
-                        repeat_f = fmt[1]
-                        match = repeat_f.findall(line[rs:])
-                        if match:
-                            for m in match:
-                                k, v = m[1], m[2]
-                                rv[k] = v
-
-                        if lbody:
-                            if 'lbody_' not in self.pending_mlmsg:
-                                self.pending_mlmsg['lbody_'] = []
-                            self.pending_mlmsg['lbody_'].append(rv)
-                        else:
-                            self.pending_mlmsg.update(rv)
-                else:
-                    match = fmt.search(line)
-                    if match:
-                        parsed = True
-                        self.pending_mlmsg.update(match.groupdict())
-                return parsed
-
-            parsed = False
-            # dictionary format
-            if type(self.format) is dict:
-                # head
-                match = self.format['head'].search(line)
-                if match:
-                    parsed = True
-                    # send pending message
-                    if self.pending_mlmsg:
-                        yield self.pending_mlmsg
-                    self.pending_mlmsg = match.groupdict()
-                else:
-                    # tail
-                    if 'tail' in self.format:
-                        parsed = _match_body_or_tail(line, self.format['tail'],
-                                                     parsed)
-                    # body
-                    if not parsed and 'lbody' in self.format:
-                        parsed = _match_body_or_tail(line,
-                                                     self.format['lbody'],
-                                                     parsed, True)
-            # line format
-            else:
-                msg, parsed = self.convert_msg(line, True)
-                # head
-                if parsed:
-                    # send pending message
-                    if self.pending_mlmsg:
-                        if 'tail_' in self.pending_mlmsg:
-                            self.pending_mlmsg['tail_'] =\
-                                '\n'.join(self.pending_mlmsg['tail_'])
-                        yield self.pending_mlmsg
-
-                    self.pending_mlmsg = msg
-                elif msg:
-                    # no format
-                    if 'tail_' not in self.pending_mlmsg:
-                        self.pending_mlmsg['tail_'] = []
-                    # append raw message
-                    self.pending_mlmsg['tail_'].append(msg)
-
     def attach_msg_extra(self, msg):
         if type(msg) is dict:
             msg['sname_'] = self.sname
@@ -647,7 +569,6 @@ class FileTailer(object):
         for line in lines.splitlines():
             if len(line) > 0:
                 yield self.attach_msg_extra(self.convert_msg(line)[0])
-
 
     def _send_newline(self, msg, msgs):
         ts = int(time.time())
@@ -666,8 +587,7 @@ class FileTailer(object):
         if not rbytes:
             rbytes = len(lines)
         try:
-            itr = self._iterate_multiline(lines) if self.multiline else\
-                self._iterate_line(lines)
+            itr = self._iterate_line(lines)
             msgs = []
             for msg in itr:
                 if not msg:

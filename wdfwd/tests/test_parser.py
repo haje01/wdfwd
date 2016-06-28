@@ -3,273 +3,121 @@ import re
 import pytest
 
 from wdfwd import parser as ps
+from wdfwd.parser import custom
 
 
-def test_parser_regex():
-    SAMPLE = '''
-hello world
-hi there
-'''
-    ptrn = re.compile(r'^(\w+)\s+(\w+)$', re.MULTILINE)
-    pos = 0
-    while True:
-        match = ptrn.search(SAMPLE, pos)
-        if not match:
-            break
-        span = match.span()
-        pos = span[1] + 1
-        print match.groups()
+class DummySender(object):
+    def __init__(self):
+        pass
 
-    txt = "\[%(\d+)\]"
-    match = re.compile(r'%\(([^)]+)\)').search("\[%(\d+)\]")
-    b, e = match.span()
-    txt = "{}{}{}".format(txt[:b], "(?P<{}>{})".format("pname" , match.groups()[0]), txt[e:])
-
-
-def test_parser_cardinal():
-    ctx = ps.Context()
-    ctx.Token('num', r'\d+')
-    part = ctx.Part(r'%{num}')
-    taken, _ = part.parse("1")
-    assert taken['num'] == '1'
-
-    ctx.Token('num2', r'\s*%(\d+)')
-    seq = ctx.Sequence(ctx.Part(r'%{num}'), ctx.Part(r'%{num2}'))
-
-    taken, msg = seq.parse("abc 456")
-    assert len(taken) == 0
-    assert msg == 'abc 456'
-
-    seq.reset()
-    taken, msg = seq.parse("123 456")
-    assert taken['num'] == '123'
-    assert taken['num2'] == '456'
-    assert msg == ''
-
-    seq.reset()
-    taken, msg = seq.parse("123 abc")
-    assert taken['num'] == '123'
-    assert 'num2' not in taken
-    assert msg == ' abc'
-
-    ctx.Token('alpha', '[a-z]+')
-    cho = ctx.Choice(ctx.Part('%{num}'), ctx.Part('%{alpha}'))
-    taken, msg = cho.parse('123 abc')
-    assert taken['num'] == '123'
-    assert 'alpha' not in taken
-
-    taken, msg = cho.parse('abc def')
-    assert taken['alpha'] == 'abc'
-    assert msg == ' def'
-
-    ctx.Token('alpha2', '\s*%([a-z]+)')
-    cho = ctx.Choice(
-        ctx.Sequence(ctx.Part('%{num}'), ctx.Part('%{alpha}')),
-        ctx.Sequence(ctx.Part('%{alpha2}'), ctx.Part('%{num2}'))
-    )
-    taken, msg = cho.parse('abc 123')
-    assert 'num' not in taken
-    assert 'alpha' not in taken
-    assert taken['alpha2'] == 'abc'
-    assert taken['num2'] == '123'
-
-    seq = ctx.Sequence(
-        ctx.Choice(ctx.Part('%{alpha}'), ctx.Part('%{num}')),
-        ctx.Choice(ctx.Part('%{num2}'), ctx.Part('%{alpha2}')),
-    )
-    taken, msg = seq.parse("123 abc")
-    assert 'num' in taken
-    assert 'alpha2' in taken
-    assert 'num2' not in taken
+    def send(self, data):
+        pass
 
 
 def test_parser_fcs():
-    ctx = ps.Context()
-    ctx.Token("time", r'\d{2}:\d{2}:\d{2}\.\d+')
-    ctx.Token("errcode", r'E\d+')
-    ctx.Token("code", r'\d+')
-    ctx.Token("srcfile", r'\w+\.\w+')
-    ctx.Token("srcline", r'\d+')
-    ctx.Group("srcinfo", r'%{srcfile}:%{srcline}')
-    ctx.Token("msg", r'.*')
-    ctx.Token("method", r'\s*\[%((\w+))\]')
-    ctx.Token("key", r'\s*%(\w+)\s*')
-    ctx.Token("value", r'\s*%([\w\.]+)\s*')
-    ctx.Group("keyvalue", r'%{key} : %{value}')
 
-    scm = ctx.Choice(
-        ctx.Part(r'%{errcode} %{time}  %{code} %{srcinfo}\] %{msg}\n%{method}\n@{%{keyvalue}\n?}'),
-        ctx.Part(r'%{errcode} %{time}  %{code} %{srcinfo}\] %{msg}')
-    )
-    res = scm.parse("E0324 09:26:51.754881  2708 fcs_client.cpp:225] connection closed : 997")
-    assert len(res) == 6
+    sender = DummySender()
+    fcs = custom.FCS(sender)
+    assert fcs.parse_line("E0324 09:26:51.754881  2708 fcs_client.cpp:225] connection closed : 997")
+    assert len(fcs.data) == 6
+    assert fcs.sent_cnt == 0
 
-    res = fmt.parse("""E0325 09:37:45.272496  1240 communicator.hpp:92] [59948] fail to receive. timeout
- [RequestGetPCRoomGuid]
-  packet_length : 23
-  packet_type : 0x34
-  transaction_id : 59948
-  client_ip : 211.226.71.155""")
-    assert 'transaction_id' in res.keys()
-    assert 'packet_type' in res.keys()
-    assert 'client_ip' in res.keys()
+    assert fcs.parse_line("E0324 11:37:52.508764  3304 communicator.hpp:128] [8371] response sync")
+    assert fcs.sent_cnt == 1
 
-    ctx.Sequence(
-        ctx.Part(r'%{errcode} %{time}  %{code} %{srcinfo}\] %{msg}'),
-        ctx.ZeroOrMore('\n%{method}\n@{%{keyvalue}\n', prefix_by='method'),
-        ctx.RepeatGroup(start='\n%{method}', body='\n@{%{keyvalue}\n?}',
-                        body_prefix_by='method')
-    )
-    SAMPLE_FCS1 = """Log file created at: 2016/03/24 09:26:51
-Running on machine: R2FLD037
-Log line format: [IWEF]mmdd hh:mm:ss.uuuuuu threadid file:line] msg
-E0324 09:26:51.754881  2708 fcs_client.cpp:225] connection closed : 997
-E0324 09:26:51.761718  1296 fcs_client.cpp:225] connection closed : 121
-E0325 09:37:45.272496  1240 communicator.hpp:92] [59948] fail to receive. timeout
- [RequestGetPCRoomGuid]
-  packet_length : 23
-  packet_type : 0x34
-  transaction_id : 59948
-  client_ip : 211.226.71.155
-E0325 10:03:27.231928  2300 communicator.hpp:92] [61207] fail to receive. timeout
- [RequestGetPCRoomGuid]
-  packet_length : 21
-  packet_type : 0x34
-  transaction_id : 61207
-  client_ip : 61.107.34.25"""
+    fcs.parse_line("[RequestValidateAuthenticationKey]")
+    assert fcs.data['type'] == 'ValidateAuthenticationKey'
+    fcs.parse_line(" packet_length : 67")
+    assert fcs.data["req.packet_length"] == '67'
 
+    fcs.parse_line(" packet_type : 0x26")
+    fcs.parse_line(" transaction_id : 8371")
+    fcs.parse_line(" account_no : 1862710")
+    fcs.parse_line(" authentication_key : D7665F56-29E2-4B80-BD8F-C5D37C3654CA")
+    fcs.parse_line(" client_ip : 116.121.77.141")
+    assert fcs.data["req.client_ip"] == '116.121.77.141'
+
+    fcs.parse_line("[ResponseValidateAuthenticationKey]")
+    fcs.parse_line(" packet_length : 44")
+    assert fcs.data["res.packet_length"] == '44'
+    fcs.parse_line(" packet_type : 0x26")
+    fcs.parse_line(" transaction_id : 8371")
+    fcs.parse_line(" result_code : 90213")
+    fcs.parse_line(" condition_type : 0x64")
+    fcs.parse_line(" user_no : 0")
+    fcs.parse_line(" user_id : ")
+    fcs.parse_line(" account_no : 0")
+    fcs.parse_line(" account_id : ")
+    fcs.parse_line(" account_type : 0x00")
+    fcs.parse_line(" block_state : 0x00")
+    fcs.parse_line(" pcbang_index : 0")
+    fcs.parse_line(" phone_auth : ")
+    fcs.parse_line(" is_phone_auth : 0")
+    fcs.parse_line(" auth_ip : ")
+    assert fcs.data["res.auth_ip"] == ''
+
+    fcs.parse_line("E0324 11:39:31.027815  3316 communicator.hpp:128] [8481] response sync")
+    assert len(fcs.data) == 6
+    assert fcs.sent_cnt == 2
 
 
 def test_parser_basic():
-    ctx = ps.Context()
+    psr = ps.Parser()
 
     with pytest.raises(ps.UnresolvedToken):
-        ctx._expand("%{unknown}")
+        psr._expand("%{unknown}")
 
     with pytest.raises(re.error):
-        ctx.Token("date", r'\d[')
-    assert "%{date}" not in ctx.objects
+        psr.Token("date", r'\d[')
+    assert "%{date}" not in psr.objects
 
     with pytest.raises(ValueError):
-        ctx.Token("datetime", r'%{date}:%{time}')
-    with pytest.raises(ValueError):
-        ctx.Token("keyvalue", r'@{\d,?}')
-    with pytest.raises(ValueError):
-        ctx.Group("keyvalue", r'@{\d,?}')
+        psr.Token("datetime", r'%{date}:%{time}')
 
-    token = ctx.Token("date", r'\d{4}/\d{2}/\d{2}')
+    token = psr.Token("date", r'\d{4}/\d{2}/\d{2}')
     assert token.name == 'date'
     assert token.key == '%{date}'
-    assert "%{date}" in ctx.objects
+    assert "%{date}" in psr.objects
     assert token.regex == r'(?P<date>\d{4}/\d{2}/\d{2})'
 
     with pytest.raises(ValueError):
-        ctx.Token("date", r'\d{2}/\d{2}/\d{2}')
+        psr.Token("date", r'\d{2}/\d{2}/\d{2}')
 
-    ctx.clear_values()
-    ctx.Token("time", r'\d{2}:\d{2}:\d{2}')
-    ctx.Token("millis", r'\.\d+')
-    group = ctx.Group("timem", r'%{time}%{millis}')
+    psr.Token("time", r'\d{2}:\d{2}:\d{2}')
+    psr.Token("millis", r'\.\d+')
+    group = psr.Group("timem", r'%{time}%{millis}')
     assert group.regex == r'(?P<time>\d{2}:\d{2}:\d{2})(?P<millis>\.\d+)'
-    ctx.Group("datetime", r'%{date} %{timem}')
-    group = ctx.Group("dt_utc", r'%{datetime} \+0000')
-    res = group.parse("2016/06/10 12:35:02.312 +0000")
-    assert len(res) == 3
-    assert 'date' in ctx.values and 'time' in ctx.values and 'millis' in ctx.values
+    psr.Group("datetime", r'%{date} %{timem}')
+    group = psr.Group("dt_utc", r'%{datetime} \+0000')
+    group.parse("2016/06/10 12:35:02.312 +0000")
+    taken = group.taken
+    assert len(taken) == 3
+    assert 'date' in taken and 'time' in taken and 'millis' in taken
 
-    ctx.Token("errcode", r'E\d+')
-    ctx.Token("code", r'\d+')
-    ctx.Token("srcfile", r'\w+\.\w+')
-    ctx.Token("srcline", r'\d+')
-    ctx.Group("srcinfo", r'%{srcfile}:%{srcline}')
+    psr.Token("errcode", r'E\d+')
+    psr.Token("code", r'\d+')
+    psr.Token("srcfile", r'\w+\.\w+')
+    psr.Token("srcline", r'\d+')
+    psr.Group("srcinfo", r'%{srcfile}:%{srcline}')
 
-    ctx.Token("msg", r'.*')
-    token = ctx.Token("brnum", r'\[%(\d+)\]')
+    psr.Token("msg", r'.*')
+    token = psr.Token("brnum", r'\[%(\d+)\]')
     token.regex == r'\[(?P<brnum>\d+)]'
-    assert token.parse("[61207]") == "61207"
-    assert ctx.values['brnum'] == "61207"
-    ctx.Token("brname", r'\[(\w+)\]')
+    assert token.parse("[61207]")
+    assert token.taken['brnum'] == '61207'
+    psr.Token("brname", r'\[(\w+)\]')
 
-    token = ctx.Token("key", r'\s*%(\w+)\s*')
-    assert token.parse("  keyname  ") == "keyname"
-    ctx.Token("value", r'\s*%([\w\.]+)\s*')
-    ctx.Group("keyvalue", r'%{key} : %{value}')
-    p_repeat = ctx.Part('begin @{%{keyvalue},?} mid @{%{keyvalue},?} end')
-    assert len(p_repeat.ptrns) == 5
-    res = p_repeat.parse("begin aaa : 1, bbb : 2 mid ccc : 3 end")
-    assert res['aaa'] == '1'
-    assert res['bbb'] == '2'
-    assert res['ccc'] == '3'
+    token = psr.Token("key", r'\s*%(\w+)\s*')
+    assert token.parse("  keyname  ")
+    assert token.taken['key'] == 'keyname'
 
-    p_onp_head = ctx.Part(r'%{errcode} %{timem}  %{code} %{srcinfo}\] %{msg}')
-    res = p_onp_head.parse("E0324 09:26:51.754881  2708 fcs_client.cpp:225] connection closed : 997")
-    assert 'errcode' in res
-    assert len(res) == 7
-    assert res['srcline'] == '225'
+    psr.Token("value", r'\s*%([\w\.]+)\s*')
+    kv = psr.KeyValue("%{key}=%{value},?")
+    assert kv.parse("aaa=1,bbb=2,ccc=3")
+    assert kv.taken['aaa'] == '1'
+    assert kv.taken['bbb'] == '2'
+    assert kv.taken['ccc'] == '3'
 
-    p_keyvalue = ctx.Part(r'@{%{keyvalue}}')
-    res = p_keyvalue.parse("packet_length : 23")
-    assert 'packet_length' in res.keys()
-    assert res['packet_length'] == '23'
-
-    ctx.clear_values()
-    SAMPLE = """E0325 10:03:27.231928  2300 communicator.hpp:92] [61207] fail to receive. timeout
- [RequestGetPCRoomGuid]
-  packet_length : 21
-  packet_type : 0x34
-  transaction_id : 61207
-  client_ip : 61.107.34.25"""
-    elm = ctx.Part("%{errcode} %{timem}  %{code} %{srcinfo}\] %{brnum} %{msg}\n %{brname}\n@{%{keyvalue}\n?}")
-    elm.parse(SAMPLE)
-    assert ctx.values['brnum'] == '61207'
-    assert ctx.values['packet_type'] == '0x34'
-    assert ctx.values['packet_length'] == '21'
-    assert ctx.values['transaction_id'] == '61207'
-    assert ctx.values['client_ip'] == '61.107.34.25'
-
-SAMPLE_FCS2 = """Log file created at: 2016/03/24 11:37:52
-Running on machine: R2CHN001
-Log line format: [IWEF]mmdd hh:mm:ss.uuuuuu threadid file:line] msg
-E0324 11:37:52.508764  3304 communicator.hpp:128] [8371] response sync
- [RequestValidateAuthenticationKeyForR2]
-  packet_length : 67
-  packet_type : 0x26
-  transaction_id : 8371
-  account_no : 1862710
-  authentication_key : D7665F56-29E2-4B80-BD8F-C5D37C3654CA
-  client_ip : 116.121.77.141
- [ResponseValidateAuthenticationKeyForR2]
-  packet_length : 44
-  packet_type : 0x26
-  transaction_id : 8371
-  result_code : 90213
-  condition_type : 0x64
-  user_no : 0
-  user_id :
-  account_no : 0
-  account_id :
-  account_type : 0x00
-  block_state : 0x00
-  pcbang_index : 0
-  phonp_auth :
-  is_phonp_auth : 0
-  auth_ip : """
-
-SAMPLE_KRT = """BEGIN.IPCHECK
-    PACKET.REQ.IPCHECK|Date=2016-04-26 10:53:14.832|IpAddress=61.33.92.200|AccountGUID=46|Reserved1=0|Reserved2=0|Reserved3=0
-    BIZ.REQ.IPCHECK|Date=2016-04-26 10:53:14.832|IpAddress=61.33.92.200
-    BIZ.RES.IPCHECK|Date=2016-04-26 10:53:14.863|Return=True|ReturnCode=1|ProviderAccountNo=0
-    BIZ.RES.IPCHECK|Date=2016-04-26 10:53:14.863|AccountGUID=46|RoomGUID=0|ResultCode=0|Reserved1=0|Reserved2=0|Reserved3=0
-END|46-0|RecvQueueCount=0|SendQueueCount=0"""
-
-SAMPLE_MINT = """2016-01-20 15:27:40.773	GetVirtualAccountList	Exception has been thrown by the target of an invocation.	0750bdb3-e9d3-4588-9607-49565d8aeaf1	537	{"ProviderCode":"PRC001","AccountNo":7,"UserNo":3,"PaymentNo":0,"TransactionId":null,"MethodCode":"PMC164","CurrencyCode":null,"BankName":null,"BankAccount":null,"Amount":0,"ProviderName":null,"ProviderClass":null,"ValidatePeriod":0,"PgTransactionId":null,"Desc":null,"DetailDesc":null,"ClientIp":"10.1.30.131","CountryCode":null,"Path":2,"TraceId":"0750bdb3-e9d3-4588-9607-49565d8aeaf1"}	   at System.RuntimeTypeHandle.CreateInstance(RuntimeType type, Boolean publicOnly, Boolean noCheck, Boolean& canBeCached, RuntimeMethodHandleInternal& ctor, Boolean& bNeedSecurityCheck)
-    at System.RuntimeType.CreateInstanceSlow(Boolean publicOnly, Boolean skipCheckThis, Boolean fillCache, StackCrawlMark& stackMark)
-    at System.Activator.CreateInstance[T]()
-    at MINT.Base.Library.SafeProxy.Using[T,E](Action`1 action, E& exception)
-    at MINT.Base.Library.PrivateCaller.GetKeyViaKeyServer(String& key)
-    at MINT.Base.Library.PrivateCaller.GetKey(String& key)
-    at MINT.Billing.Provider.Payment.KR.PaidPayment.GetVirtualAccountList(RequestVirtualAccount model)
-at DynamicModule.ns.Wrapped_IPaidPayment_363e535d5ca846d9b9d33bfa228d6b84.<GetVirtualAccountList_DelegateImplementation>__12(IMethodInvocation inputs, GetNextInterceptionBehaviorDelegate getNext)"""
 
 SAMPLE_API = """2016-04-21 20:42:29.331	GetAccountInformation	1	606f9d8c-9491-4fdc-9476-f701e84863bf	272	{
   "AccountIdentifierNo": "9999998946",
@@ -302,3 +150,47 @@ SAMPLE_API = """2016-04-21 20:42:29.331	GetAccountInformation	1	606f9d8c-9491-4f
 }"""
 
 
+def test_parser_create():
+    cfg = """
+parser:
+    tokens:
+        date: '\d{4}-\d{2}-\d{2}'
+        time: '\d{2}:\d{2}:\d{2}'
+        level: 'DEBUG|INFO|ERROR'
+        src_file: '\w+\.\w+'
+        src_line: '\d+'
+        msg: '.*'
+    groups:
+        datetime: '%{date} %{time}'
+        src_info: '%{src_file}:%{src_line}'
+    formats:
+        - '%{datetime} %{level} %{src_info} %{msg}'
+        - '%{datetime} %{level} %{msg}'
+    """
+    import yaml
+    from StringIO import StringIO
+    cfg = yaml.load(StringIO(cfg))
+    psr = ps.create_parser(cfg['parser'])
+    assert psr.parse_line('2016-06-28 12:33:21 DEBUG foo.py:37 Init success')
+    assert psr.data['date'] == '2016-06-28'
+    assert psr.data['level'] == 'DEBUG'
+    assert psr.data['src_line'] == '37'
+
+    assert psr.parse_line('2016-06-29 17:50:11 ERROR Critical error!')
+    assert psr.data['level'] == 'ERROR'
+    assert psr.data['msg'] == 'Critical error!'
+
+    assert not psr.parse_line('2016-06-29 ERROR')
+
+
+def test_parser_create_custom():
+    cfg = """
+parser:
+    custom: FCS
+    """
+    import yaml
+    from StringIO import StringIO
+    cfg = yaml.load(StringIO(cfg))
+    sender = DummySender()
+    psr = ps.create_parser(cfg['parser'], sender)
+    assert isinstance(psr, custom.FCS)
