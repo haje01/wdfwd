@@ -1,3 +1,11 @@
+0.1.2
+=====
+- Support parser formatter & custom parser
+
+0.1.1
+=====
+- Fix bugs
+
 0.1.0
 =====
 - Support trailing files into Fluent server

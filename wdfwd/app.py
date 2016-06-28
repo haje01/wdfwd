@@ -11,7 +11,6 @@ from wdfwd.util import ldebug, linfo, lerror, validate_format,\
     validate_order_ptrn
 from wdfwd.sync import sync_file
 from wdfwd.parser import create_parser
-from wdfwd.parser import custom
 
 
 cfg = get_config()
@@ -48,11 +47,12 @@ def start_tailing():
     fluent = tailc['to'].get('fluent')
 
     gformat = tailc.get('format')
-    linfo("global line format: '{}'".format(gformat))
+    linfo("global log format: '{}'".format(gformat))
     if gformat:
-        validate_format(ldebug, lerror, gformat, False)
+        validate_format(ldebug, lerror, gformat)
 
     gparser = tailc.get('parser')
+    linfo("global log parser '{}'".format(gparser))
     if gparser:
         gparser = create_parser(gparser)
 
@@ -82,17 +82,17 @@ def start_tailing():
             filec = src[cmd]
             bdir = filec['dir']
             ptrn = filec['pattern']
+            ldebug("file pattern: '{}'".format(ptrn))
             latest = filec.get('latest')
             format = filec.get('format')
-            order_ptrn = filec.get('order_ptrn')
             ldebug("file format: '{}'".format(format))
-
-            if format and parser:
-                lerror("Can not use format & parser together!")
-                return
-            elif not format and not parser:
-                lerror("Need format or parser")
-                return
+            order_ptrn = filec.get('order_ptrn')
+            pcfg = filec.get('parser')
+            if pcfg:
+                parser = create_parser(pcfg)
+                ldebug("file parser: '{}'".format(parser))
+            else:
+                parser = None
 
             if not format and gformat:
                 linfo("file format not exist. use global format instead")
@@ -104,6 +104,15 @@ def start_tailing():
                 linfo("file order_ptrn not exist. use global order_ptrn "
                       "instead")
                 order_ptrn = gorder_ptrn
+
+            if format and parser:
+                linfo("Both format & parser exist. will use parser")
+                format = None
+
+            if not format and not parser:
+                lerror("Need format or parser")
+                return
+
             tag = filec['tag']
             send_term = filec.get('send_term', SEND_TERM)
             update_term = filec.get('update_term', UPDATE_TERM)

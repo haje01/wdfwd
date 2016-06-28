@@ -6,40 +6,33 @@ from wdfwd import parser as ps
 from wdfwd.parser import custom
 
 
-class DummySender(object):
-    def __init__(self):
-        pass
-
-    def send(self, data):
-        pass
-
-
 def test_parser_fcs():
 
-    sender = DummySender()
-    fcs = custom.FCS(sender)
+    psr = ps.Parser()
+    fcs = custom.FCS()
     assert fcs.parse_line("E0324 09:26:51.754881  2708 fcs_client.cpp:225] connection closed : 997")
-    assert len(fcs.data) == 6
+    assert len(fcs.buf) == 6
     assert fcs.sent_cnt == 0
 
     assert fcs.parse_line("E0324 11:37:52.508764  3304 communicator.hpp:128] [8371] response sync")
+    assert len(fcs.parsed) == 6
     assert fcs.sent_cnt == 1
 
-    fcs.parse_line("[RequestValidateAuthenticationKey]")
-    assert fcs.data['type'] == 'ValidateAuthenticationKey'
+    assert fcs.parse_line("[RequestValidateAuthenticationKey]")
+    assert fcs.buf['type'] == 'ValidateAuthenticationKey'
     fcs.parse_line(" packet_length : 67")
-    assert fcs.data["req.packet_length"] == '67'
+    assert fcs.buf["req.packet_length"] == '67'
 
     fcs.parse_line(" packet_type : 0x26")
     fcs.parse_line(" transaction_id : 8371")
     fcs.parse_line(" account_no : 1862710")
     fcs.parse_line(" authentication_key : D7665F56-29E2-4B80-BD8F-C5D37C3654CA")
     fcs.parse_line(" client_ip : 116.121.77.141")
-    assert fcs.data["req.client_ip"] == '116.121.77.141'
+    assert fcs.buf["req.client_ip"] == '116.121.77.141'
 
     fcs.parse_line("[ResponseValidateAuthenticationKey]")
     fcs.parse_line(" packet_length : 44")
-    assert fcs.data["res.packet_length"] == '44'
+    assert fcs.buf["res.packet_length"] == '44'
     fcs.parse_line(" packet_type : 0x26")
     fcs.parse_line(" transaction_id : 8371")
     fcs.parse_line(" result_code : 90213")
@@ -54,10 +47,12 @@ def test_parser_fcs():
     fcs.parse_line(" phone_auth : ")
     fcs.parse_line(" is_phone_auth : 0")
     fcs.parse_line(" auth_ip : ")
-    assert fcs.data["res.auth_ip"] == ''
+    assert fcs.buf["res.auth_ip"] == ''
 
     fcs.parse_line("E0324 11:39:31.027815  3316 communicator.hpp:128] [8481] response sync")
-    assert len(fcs.data) == 6
+    assert len(fcs.parsed) == 28
+    assert fcs.parsed["res.auth_ip"] == ''
+    assert len(fcs.buf) == 6
     assert fcs.sent_cnt == 2
 
 
@@ -71,9 +66,6 @@ def test_parser_basic():
         psr.Token("date", r'\d[')
     assert "%{date}" not in psr.objects
 
-    with pytest.raises(ValueError):
-        psr.Token("datetime", r'%{date}:%{time}')
-
     token = psr.Token("date", r'\d{4}/\d{2}/\d{2}')
     assert token.name == 'date'
     assert token.key == '%{date}'
@@ -84,11 +76,14 @@ def test_parser_basic():
         psr.Token("date", r'\d{2}/\d{2}/\d{2}')
 
     psr.Token("time", r'\d{2}:\d{2}:\d{2}')
+    dt = psr.Token("datetime", r'%{date} %{time}')
+    assert dt.parse("2016/06/30 10:20:30")
+    assert dt.taken['datetime'] == '2016/06/30 10:20:30'
     psr.Token("millis", r'\.\d+')
     group = psr.Group("timem", r'%{time}%{millis}')
     assert group.regex == r'(?P<time>\d{2}:\d{2}:\d{2})(?P<millis>\.\d+)'
-    psr.Group("datetime", r'%{date} %{timem}')
-    group = psr.Group("dt_utc", r'%{datetime} \+0000')
+    psr.Group("dtime", r'%{date} %{timem}')
+    group = psr.Group("dt_utc", r'%{dtime} \+0000')
     group.parse("2016/06/10 12:35:02.312 +0000")
     taken = group.taken
     assert len(taken) == 3
@@ -172,13 +167,13 @@ parser:
     cfg = yaml.load(StringIO(cfg))
     psr = ps.create_parser(cfg['parser'])
     assert psr.parse_line('2016-06-28 12:33:21 DEBUG foo.py:37 Init success')
-    assert psr.data['date'] == '2016-06-28'
-    assert psr.data['level'] == 'DEBUG'
-    assert psr.data['src_line'] == '37'
+    assert psr.parsed['date'] == '2016-06-28'
+    assert psr.parsed['level'] == 'DEBUG'
+    assert psr.parsed['src_line'] == '37'
 
     assert psr.parse_line('2016-06-29 17:50:11 ERROR Critical error!')
-    assert psr.data['level'] == 'ERROR'
-    assert psr.data['msg'] == 'Critical error!'
+    assert psr.parsed['level'] == 'ERROR'
+    assert psr.parsed['msg'] == 'Critical error!'
 
     assert not psr.parse_line('2016-06-29 ERROR')
 
@@ -191,6 +186,5 @@ parser:
     import yaml
     from StringIO import StringIO
     cfg = yaml.load(StringIO(cfg))
-    sender = DummySender()
-    psr = ps.create_parser(cfg['parser'], sender)
+    psr = ps.create_parser(cfg['parser'])
     assert isinstance(psr, custom.FCS)

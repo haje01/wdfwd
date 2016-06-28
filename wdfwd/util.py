@@ -210,14 +210,7 @@ class InvalidOrderPtrn(Exception):
     pass
 
 
-def validate_format(ldebug, lerror, fmt, multiline):
-    if not multiline:
-        return _validate_format(ldebug, lerror, fmt)
-    else:
-        return _validate_multi_format(ldebug, lerror, fmt)
-
-
-def _validate_format(ldebug, lerror, fmt):
+def validate_format(ldebug, lerror, fmt):
     ldebug("validate_format {}".format(fmt))
     if not fmt:
         return
@@ -235,28 +228,6 @@ def _validate_format(ldebug, lerror, fmt):
     except Exception, e:
         lerror("validate_format '{}' - invalid format '{}'".format(e, fmt))
         raise InvalidLogFormat()
-
-
-def _validate_multi_format(ldebug, lerror, format):
-    def _compile_fmt(fmt):
-        try:
-            return re.compile(fmt)
-        except Exception, e:
-            lerror("_validate_multi_format '{}' - invalid format '{}'".format(e, fmt))
-            raise InvalidLogFormat()
-
-    # multiple formats
-    if type(format) is dict:
-        rv = {}
-        for k, fs in format.iteritems():
-            if hasattr(fs, '__iter__'):
-                srv = [_compile_fmt(f) for f in fs]
-                rv[k] = srv
-            else:
-                rv[k] = _compile_fmt(fs)
-    else:
-        rv = _compile_fmt(format)
-    return rv
 
 
 def validate_order_ptrn(ldebug, lerror, ptrn):

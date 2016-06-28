@@ -40,6 +40,7 @@ test:
 tailing:
     max_between_data: 10000
     pos_dir: $WDFWD_DIR\wdfwd\tests\tpos
+    format: '(?P<msg>.*)'
     from:
         - file:
             dir: $WDFWD_DIR\wdfwd\tests\tlog
@@ -55,6 +56,24 @@ tailing:
             tag: wdfwd.fcs
             parser:
                 custom: FCS
+        - file:
+            dir: $WDFWD_DIR\wdfwd\tests\tlog
+            pattern: format_test-*-*-*.log
+            tag: wdfwd.fmt
+            parser:
+                tokens:
+                    date: '\d{4}-\d{2}-\d{2}'
+                    time: '\d{2}:\d{2}:\d{2}'
+                    level: 'DEBUG|INFO|ERROR'
+                    src_file: '\w+\.\w+'
+                    src_line: '\d+'
+                    msg: '.*'
+                groups:
+                    datetime: '%{date} %{time}'
+                    src_info: '%{src_file}:%{src_line}'
+                formats:
+                    - '%{datetime} %{level} %{src_info} %{msg}'
+                    - '%{datetime} %{level} %{msg}'
     to:
         fluent: ['localhost', 24224]
 

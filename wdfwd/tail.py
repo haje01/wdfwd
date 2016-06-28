@@ -360,12 +360,13 @@ class FileTailer(object):
         self.ldebug("get_sorted_target_files")
         files = glob.glob(os.path.join(self.bdir, self.ptrn))
         if self.order_ptrn:
+            self.ldebug("order_ptrn {}".format(self.order_ptrn))
             order_key = {}
             for afile in files:
                 match = self.order_ptrn.search(afile)
                 if not match:
                     self.lwarning(1, "file order pattern mismatch - "
-                                  "'{}'".format(afile))
+                                  "'{} - {}'".format(afile))
                     continue
                 gd = match.groupdict()
                 order_key[afile] = gd['date'] +\
@@ -373,6 +374,7 @@ class FileTailer(object):
                 # self.ldebug("order_key - {}".format(order_key[afile]))
             return sorted(files, key=lambda f: order_key[f])
         else:
+            self.ldebug("files {}".format(files))
             return files
 
     def update_target(self, start=False):
@@ -429,7 +431,6 @@ class FileTailer(object):
         return _validate_order_ptrn(self.ldebug, self.lerror, fmt)
 
     def _convert_matched_msg(self, match):
-        parsed = True
         has_body = False
         gd = match.groupdict()
 
@@ -464,29 +465,23 @@ class FileTailer(object):
                     self.lwarning(1, "'{}' is overwritten from '{}' to "
                                   "'{}'".format(key, msg[key], gd[key]))
                 msg[key] = gd[key]
-        return msg, parsed
+        return msg
 
-    def convert_msg(self, msg, return_unparsed=False):
+    def convert_msg(self, msg):
         self.ldebug("convert_msg")
-        msg = None
         if self.encoding:
             msg = msg.decode(self.encoding).encode('utf8')
 
-        parsed = False
-        if self.format:
-            # self.ldebug(1, "try match format")
-            match = self.format.search(msg)
-            if match:
-                msg, parsed = self._convert_matched_msg(match)
-            else:
-                self.lwarning(1, "can't parse line '{}'".format(msg[:50]))
-                if return_unparsed:
-                    return msg, False
+        parsed = None
+        # self.ldebug(1, "try match format")
+        match = self.format.search(msg)
+        if match:
+            parsed = self._convert_matched_msg(match)
+            self.ldebug(1, "parsed: {}".format(parsed))
+            return parsed
         else:
-            self.ldebug(1, "no format")
-
-        self.ldebug(1, "parsed: {}".format(parsed))
-        return msg, parsed
+            self.lwarning(1, "can't parse line '{}'".format(msg[:50]))
+            return None
 
     def _read_target_to_end(self, fh):
         self.raise_if_notarget()
@@ -537,18 +532,15 @@ class FileTailer(object):
                     raise LatestFileChanged()
             return 0
 
-        # sent_pos = self._clamp_sent_pos(file_pos, sent_pos)
-
         # move to last sent pos
         with OpenNoLock(self.target_path) as fh:
             win32file.SetFilePointer(fh, sent_pos, win32file.FILE_BEGIN)
             # read file to the end
             lines, rbytes = self._read_target_to_end(fh)
 
-        # TODO: optimize by bulk sending
         scnt = 0
-        # self.ldebug(1, "sent_pos {} file_pos {} rbytes "
-        #            "{}".format(sent_pos, file_pos, rbytes))
+        self.ldebug(1, "sent_pos {} file_pos {} rbytes "
+                   "{}".format(sent_pos, file_pos, rbytes))
         if rbytes > 0:
             scnt = self._may_send_newlines(lines, rbytes, scnt)
 
@@ -564,11 +556,22 @@ class FileTailer(object):
         else:
             return msg
 
-    def _iterate_line(self, lines):
-        self.ldebug("_iterate_line")
+    def _iterate_lines(self, lines):
+        self.ldebug("_iterate_lines")
         for line in lines.splitlines():
             if len(line) > 0:
-                yield self.attach_msg_extra(self.convert_msg(line)[0])
+                parsed = None
+                if self.format:
+                    parsed = self.convert_msg(line)
+                elif self.parser:
+                    if self.parser.parse_line(line):
+                        parsed = self.parser.parsed
+                        if parsed and len(parsed) > 0:
+                            parsed = self.parser.parsed
+                if parsed:
+                    yield self.attach_msg_extra(parsed)
+                else:
+                    yield line
 
     def _send_newline(self, msg, msgs):
         ts = int(time.time())
@@ -587,7 +590,7 @@ class FileTailer(object):
         if not rbytes:
             rbytes = len(lines)
         try:
-            itr = self._iterate_line(lines)
+            itr = self._iterate_lines(lines)
             msgs = []
             for msg in itr:
                 if not msg:

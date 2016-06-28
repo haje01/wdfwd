@@ -213,7 +213,7 @@ def test_tail_file_thread(rmlogs, ftail, ftail2):
     time.sleep(1)
 
 
-#@pytest.mark.skip(reason="remove skip mark to test service")
+@pytest.mark.skip(reason="remove skip mark to test service")
 def test_tail_file_svc1(rmlogs):
     """
     service test for no elatest
@@ -298,7 +298,7 @@ def test_tail_file_svc3(rmlogs):
     time.sleep(10)
 
 
-#@pytest.mark.skip(reason="remove skip mark to test service")
+@pytest.mark.skip(reason="remove skip mark to test service")
 def test_tail_file_svc4(rmlogs):
     """
     service test for elatest
@@ -332,6 +332,23 @@ def test_tail_file_svc4(rmlogs):
 
     print 'waiting...'
     time.sleep(10)
+
+
+@pytest.mark.skip(reason="remove skip mark to test service")
+def test_tail_file_svc5(rmlogs):
+    """
+        Service test for parser
+    """
+    finfo = tcfg['from'][3]['file']
+    bdir = finfo['dir']
+
+    epath = os.path.join(bdir, 'format_test-2016-06-27.log')
+    with open(epath, 'w') as f:
+        for i in range(100):
+            f.write('2016-06-27 09:10:00 DEBUG Message {}\n'.format(i))
+            time.sleep(0.1)
+            f.write('2016-06-27 09:10:10 DEBUG foo.py:171 Message {}\n'.format(i))
+            time.sleep(0.1)
 
 
 def test_tail_file_elatest1(rmlogs):
@@ -619,111 +636,6 @@ def test_tail_file_format(rmlogs):
     assert 'message' in echo
     assert 'dt' in echo
     assert 'lvl' in echo
-
-
-@pytest.mark.skip(reason="remove skip mark to test service")
-def test_tail_file_multiline(rmlogs):
-    finfo = tcfg['from'][0]['file']
-    bdir = finfo['dir']
-
-    formats = {}
-    formats['head'] = r'BEGIN\.(?P<ltype>.+)'
-    formats['lbody'] = (r'\s*(?P<sltype>[^\|]+)', r'(?:\|)(([^=]+)=([^\|]+))')
-    formats['tail'] = (r'END\|(?P<foo>[^\|]+)', r'(?:\|)(([^=]+)=([^\|]+))')
-    tail = FileTailer(bdir, None, "wdfwd.multiline.1", pos_dir, fluent_ip,
-                      fluent_port, echo=True, format=formats, multiline=True)
-
-    assert 0 == tail._may_send_newlines("""BEGIN.IPCHECK
-    PACKET.REQ.IPCHECK|Date=2016-04-26 10:53:14.832|IpAddress=61.33.92.200|AccountGUID=46|Reserved1=0|Reserved2=0|Reserved3=0
-    BIZ.REQ.IPCHECK|Date=2016-04-26 10:53:14.832|IpAddress=61.33.92.200
-    BIZ.RES.IPCHECK|Date=2016-04-26 10:53:14.863|Return=True|ReturnCode=1|ProviderAccountNo=0
-    BIZ.RES.IPCHECK|Date=2016-04-26 10:53:14.863|AccountGUID=46|RoomGUID=0|ResultCode=0|Reserved1=0|Reserved2=0|Reserved3=0
-END|46-0|RecvQueueCount=0|SendQueueCount=0""")
-
-    pmsg = tail.pending_mlmsg
-    assert 'lbody_' in pmsg
-    assert len(pmsg['lbody_']) == 4
-    assert 'AccountGUID' in pmsg['lbody_'][-1]
-
-    assert 1 == tail._may_send_newlines("BEGIN.IPCHECK")
-    assert tail.pending_mlmsg == {'ltype': 'IPCHECK'}
-
-    rv = tail.echo_file.getvalue()
-    assert 'ltype' in rv
-    assert 'foo' in rv
-    assert 'RecvQueueCount' in rv
-    assert 'lbody_' in rv
-
-
-    fmt = r'(?P<dt_>\d+-\d+-\d+ \d+:\d+:\d+\.\d+)\t(?P<method>\S+)\t(?P<result>[^\t]+)\t(?P<traceid>\S+)\t(?P<takentime>\d+)\t(?P<_json_>.*)'
-    tail = FileTailer(bdir, None, "wdfwd.multiline.2", pos_dir, fluent_ip,
-                      fluent_port, echo=True, format=fmt, multiline=True)
-
-    assert 0 == tail._may_send_newlines("""2016-01-20 15:27:40.773	GetVirtualAccountList	Exception has been thrown by the target of an invocation.	0750bdb3-e9d3-4588-9607-49565d8aeaf1	537	{"ProviderCode":"PRC001","AccountNo":7,"UserNo":3,"PaymentNo":0,"TransactionId":null,"MethodCode":"PMC164","CurrencyCode":null,"BankName":null,"BankAccount":null,"Amount":0,"ProviderName":null,"ProviderClass":null,"ValidatePeriod":0,"PgTransactionId":null,"Desc":null,"DetailDesc":null,"ClientIp":"10.1.30.131","CountryCode":null,"Path":2,"TraceId":"0750bdb3-e9d3-4588-9607-49565d8aeaf1"}	   at System.RuntimeTypeHandle.CreateInstance(RuntimeType type, Boolean publicOnly, Boolean noCheck, Boolean& canBeCached, RuntimeMethodHandleInternal& ctor, Boolean& bNeedSecurityCheck)
-    at System.RuntimeType.CreateInstanceSlow(Boolean publicOnly, Boolean skipCheckThis, Boolean fillCache, StackCrawlMark& stackMark)
-    at System.Activator.CreateInstance[T]()
-    at MINT.Base.Library.SafeProxy.Using[T,E](Action`1 action, E& exception)
-    at MINT.Base.Library.PrivateCaller.GetKeyViaKeyServer(String& key)
-    at MINT.Base.Library.PrivateCaller.GetKey(String& key)
-    at MINT.Billing.Provider.Payment.KR.PaidPayment.GetVirtualAccountList(RequestVirtualAccount model)
-at DynamicModule.ns.Wrapped_IPaidPayment_363e535d5ca846d9b9d33bfa228d6b84.<GetVirtualAccountList_DelegateImplementation>__12(IMethodInvocation inputs, GetNextInterceptionBehaviorDelegate getNext)""")
-    assert 0 == tail._may_send_newlines("""phony tail""")
-
-    assert 1 == tail._may_send_newlines("""2016-01-20 15:27:40.773	GetVirtualAccountList	Exception has been thrown by the target of an invocation.	0750bdb3-e9d3-4588-9607-49565d8aeaf1	537	{"ProviderCode":"PRC001","AccountNo":7,"UserNo":3,"PaymentNo":0,"TransactionId":null,"MethodCode":"PMC164","CurrencyCode":null,"BankName":null,"BankAccount":null,"Amount":0,"ProviderName":null,"ProviderClass":null,"ValidatePeriod":0,"PgTransactionId":null,"Desc":null,"DetailDesc":null,"ClientIp":"10.1.30.131","CountryCode":null,"Path":2,"TraceId":"0750bdb3-e9d3-4588-9607-49565d8aeaf1"}	   at System.RuntimeTypeHandle.CreateInstance(RuntimeType type, Boolean publicOnly, Boolean noCheck, Boolean& canBeCached, RuntimeMethodHandleInternal& ctor, Boolean& bNeedSecurityCheck)""")
-    ef = tail.echo_file.getvalue()
-    assert 'GetVirtualAccountList' in ef
-    assert 'at System.Activator.CreateInstance[T]()' in ef
-    assert 'phony tail' in ef
-
-
-    fmt = r'(?P<dt_>\d+-\d+-\d+ \d+:\d+:\d+\.\d+)\s(?P<_text_>.*)'
-    tail = FileTailer(bdir, None, "wdfwd.multiline.3", pos_dir, fluent_ip,
-                      fluent_port, echo=True, format=fmt, multiline=True)
-    assert 1 == tail._may_send_newlines("""2016-04-04 21:34:49.3827 EXCEPTION: System.ServiceModel.FaultException`1[System.ServiceModel.ExceptionDetail]: The LogWriter is already set. (Fault Detail is equal to An ExceptionDetail, likely created by IncludeExceptionDetailInFaults=true, whose value is:
-    System.InvalidOperationException: The LogWriter is already set.
-    at Microsoft.Practices.EnterpriseLibrary.Logging.Logger.SetLogWriter(LogWriter logWriter, Boolean throwIfSet)
-    at IBS.Base.Library.LogManager.Write(LogEntry logEntry)
-    at IBS.Base.Intercept.BaseBehavior.Invoke(IMethodInvocation input, GetNextInterceptionBehaviorDelegate getNext)
-    at Microsoft.Practices.Unity.InterceptionExtension.InterceptionBehaviorPipeline.Invoke(IMethodInvocation input, InvokeInterceptionBehaviorDelegate target)
-    at DynamicModule.ns.Wrapped_IPurchase_dcf0cbdc6b4c4b6892294181e598c448.SelectDisplayCategoryExecute(RequestSelectDisplayCategory model)
-    at IBS.Shop.Biz.Purchase.Biz.SelectDisplayCategory(RequestSelectDisplayCategory model)
-    at IBS.Shop.Purchase.Api.SelectDisplayCategory(Int32 ParentSeq, Int32 SalesZone, Int32 UserSeq, String AccountID, String clientIp, String countryCode, String path, String traceId)
-    ...).
-2016-04-05 21:34:49.3827 EXCEPTION: System.ServiceModel.FaultException`1[System.ServiceModel.ExceptionDetail]: The LogWriter is already set. (Fault Detail is equal to An ExceptionDetail, likely created by IncludeExceptionDetailInFaults=true, whose value is:
-    """)
-
-    fmt = r'(?P<dt_>\d+-\d+-\d+ \d+:\d+:\d+\.\d+)\t(?P<method>\S+)\t(?P<result>[^\t]+)\t(?P<traceid>\S+)\t(?P<takentime>\d+)\t(?P<_json_>.*)'
-    tail = FileTailer(bdir, None, "wdfwd.multiline.4", pos_dir, fluent_ip,
-                      fluent_port, echo=True, format=fmt, multiline=True)
-    tail._may_send_newlines("""2016-04-21 20:42:29.331	GetAccountInformation	1	606f9d8c-9491-4fdc-9476-f701e84863bf	272	{
-  "AccountIdentifierNo": "9999998946",
-  "ServiceCode": "SVR001",
-  "ClientIp": "1.1.1.1",
-  "CountryCode": "KR",
-  "Path": 6,
-  "TraceId": "606f9d8c-9491-4fdc-9476-f701e84863bf"
-}	{
-  "AccountInfo": {
-    "AccountNo": 807265,
-    "AccountIdentifierNo": null,
-    "AccountId": "**0120011",
-    "AccountStatus": "",
-    "SignUpDatetime": "0001-01-01T00:00:00",
-    "UserNo": 36973,
-    "DuplicationInformation": "**\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
-    "ConnectingInformation": "**\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
-    "Birthday": "1987-01-01T00:00:00",
-    "Gender": "**",
-    "UserName": "** must be at least 1 byte",
-    "Email": "",
-    "MobilePhone": "",
-    "NickName": "**0120011",
-    "Phone": ""
-  },
-  "Return": true,
-  "ReturnCode": 1,
-  "TraceId": "606f9d8c-9491-4fdc-9476-f701e84863bf"
-}	""")
 
 
 def test_tail_iislog():
