@@ -1,10 +1,6 @@
-0.1.2
-=====
-- Support parser formatter & custom parser
-
 0.1.1
 =====
-- Fix bugs
+- Support parser formatter & custom parser
 
 0.1.0
 =====

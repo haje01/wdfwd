@@ -11,4 +11,5 @@ wdfwd/tests/tpos
 wdfwd/build/
 wdfwd/dist/
 wdfwd/test_dist/
+wdfwd/tests/tlog/
 _*.yml

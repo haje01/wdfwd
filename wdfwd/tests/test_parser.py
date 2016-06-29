@@ -5,57 +5,6 @@ import pytest
 from wdfwd import parser as ps
 from wdfwd.parser import custom
 
-
-def test_parser_fcs():
-
-    psr = ps.Parser()
-    fcs = custom.FCS()
-    assert fcs.parse_line("E0324 09:26:51.754881  2708 fcs_client.cpp:225] connection closed : 997")
-    assert len(fcs.buf) == 6
-    assert fcs.sent_cnt == 0
-
-    assert fcs.parse_line("E0324 11:37:52.508764  3304 communicator.hpp:128] [8371] response sync")
-    assert len(fcs.parsed) == 6
-    assert fcs.sent_cnt == 1
-
-    assert fcs.parse_line("[RequestValidateAuthenticationKey]")
-    assert fcs.buf['type'] == 'ValidateAuthenticationKey'
-    fcs.parse_line(" packet_length : 67")
-    assert fcs.buf["req.packet_length"] == '67'
-
-    fcs.parse_line(" packet_type : 0x26")
-    fcs.parse_line(" transaction_id : 8371")
-    fcs.parse_line(" account_no : 1862710")
-    fcs.parse_line(" authentication_key : D7665F56-29E2-4B80-BD8F-C5D37C3654CA")
-    fcs.parse_line(" client_ip : 116.121.77.141")
-    assert fcs.buf["req.client_ip"] == '116.121.77.141'
-
-    fcs.parse_line("[ResponseValidateAuthenticationKey]")
-    fcs.parse_line(" packet_length : 44")
-    assert fcs.buf["res.packet_length"] == '44'
-    fcs.parse_line(" packet_type : 0x26")
-    fcs.parse_line(" transaction_id : 8371")
-    fcs.parse_line(" result_code : 90213")
-    fcs.parse_line(" condition_type : 0x64")
-    fcs.parse_line(" user_no : 0")
-    fcs.parse_line(" user_id : ")
-    fcs.parse_line(" account_no : 0")
-    fcs.parse_line(" account_id : ")
-    fcs.parse_line(" account_type : 0x00")
-    fcs.parse_line(" block_state : 0x00")
-    fcs.parse_line(" pcbang_index : 0")
-    fcs.parse_line(" phone_auth : ")
-    fcs.parse_line(" is_phone_auth : 0")
-    fcs.parse_line(" auth_ip : ")
-    assert fcs.buf["res.auth_ip"] == ''
-
-    fcs.parse_line("E0324 11:39:31.027815  3316 communicator.hpp:128] [8481] response sync")
-    assert len(fcs.parsed) == 28
-    assert fcs.parsed["res.auth_ip"] == ''
-    assert len(fcs.buf) == 6
-    assert fcs.sent_cnt == 2
-
-
 def test_parser_basic():
     psr = ps.Parser()
 
@@ -75,16 +24,17 @@ def test_parser_basic():
     with pytest.raises(ValueError):
         psr.Token("date", r'\d{2}/\d{2}/\d{2}')
 
-    psr.Token("time", r'\d{2}:\d{2}:\d{2}')
-    dt = psr.Token("datetime", r'%{date} %{time}')
+    psr.Token("time", r' %(\d{2}:\d{2}:\d{2})')
+    dt = psr.Token("datetime", r'%{date}%{time}')
+    assert dt.regex == r'(?P<datetime>\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})'
     assert dt.parse("2016/06/30 10:20:30")
     assert dt.taken['datetime'] == '2016/06/30 10:20:30'
     psr.Token("millis", r'\.\d+')
     group = psr.Group("timem", r'%{time}%{millis}')
-    assert group.regex == r'(?P<time>\d{2}:\d{2}:\d{2})(?P<millis>\.\d+)'
+    assert group.regex == r' (?P<time>\d{2}:\d{2}:\d{2})(?P<millis>\.\d+)'
     psr.Group("dtime", r'%{date} %{timem}')
     group = psr.Group("dt_utc", r'%{dtime} \+0000')
-    group.parse("2016/06/10 12:35:02.312 +0000")
+    group.parse("2016/06/10  12:35:02.312 +0000")
     taken = group.taken
     assert len(taken) == 3
     assert 'date' in taken and 'time' in taken and 'millis' in taken
@@ -188,3 +138,99 @@ parser:
     cfg = yaml.load(StringIO(cfg))
     psr = ps.create_parser(cfg['parser'])
     assert isinstance(psr, custom.FCS)
+
+def test_parser_fcs():
+    fcs = custom.FCS()
+    assert fcs.parse_line("E0324 09:26:51.754881  2708 fcs_client.cpp:225] connection closed : 997")
+    assert len(fcs.buf) == 6
+    assert fcs.sent_cnt == 0
+
+    assert fcs.parse_line("E0324 11:37:52.508764  3304 communicator.hpp:128] [8371] response sync")
+    assert len(fcs.parsed) == 6
+    assert fcs.sent_cnt == 1
+
+    assert fcs.parse_line("[RequestValidateAuthenticationKey]")
+    assert fcs.buf['type'] == 'ValidateAuthenticationKey'
+    fcs.parse_line(" packet_length : 67")
+    assert fcs.buf["req.packet_length"] == '67'
+
+    fcs.parse_line(" packet_type : 0x26")
+    fcs.parse_line(" transaction_id : 8371")
+    fcs.parse_line(" account_no : 1862710")
+    fcs.parse_line(" authentication_key : D7665F56-29E2-4B80-BD8F-C5D37C3654CA")
+    fcs.parse_line(" client_ip : 116.121.77.141")
+    assert fcs.buf["req.client_ip"] == '116.121.77.141'
+
+    fcs.parse_line("[ResponseValidateAuthenticationKey]")
+    fcs.parse_line(" packet_length : 44")
+    assert fcs.buf["res.packet_length"] == '44'
+    fcs.parse_line(" packet_type : 0x26")
+    fcs.parse_line(" transaction_id : 8371")
+    fcs.parse_line(" result_code : 90213")
+    fcs.parse_line(" condition_type : 0x64")
+    fcs.parse_line(" user_no : 0")
+    fcs.parse_line(" user_id : ")
+    fcs.parse_line(" account_no : 0")
+    fcs.parse_line(" account_id : ")
+    fcs.parse_line(" account_type : 0x00")
+    fcs.parse_line(" block_state : 0x00")
+    fcs.parse_line(" pcbang_index : 0")
+    fcs.parse_line(" phone_auth : ")
+    fcs.parse_line(" is_phone_auth : 0")
+    fcs.parse_line(" auth_ip : ")
+    assert fcs.buf["res.auth_ip"] == ''
+
+    fcs.parse_line("E0324 11:39:31.027815  3316 communicator.hpp:128] [8481] response sync")
+    assert len(fcs.parsed) == 28
+    assert fcs.parsed["res.auth_ip"] == ''
+    assert len(fcs.buf) == 6
+    assert fcs.sent_cnt == 2
+
+
+def test_parser_mocca():
+    moc = custom.Mocca()
+    # dtregx = moc.objects['%{datetime}']
+    # assert dtregx.regex == r'(?P<datetime>\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} \(\+\d{2}\d{2}\))'
+    assert moc.parse_line("==== 2016/06/01 02:51:19 (+0900) ====")
+    assert moc.parse_line("[API Request][c6b3d85e-1f60-47e8-a07c-4379db9c2bc6] /v2/contents/start")
+    assert moc.buf['ltype'] == 'API Request'
+    assert moc.parse_line('{"service_code":"SVC009","store_type":"playstore","params":"","client_ip":"192.168.0.11"}')
+
+    assert moc.parse_line('==== 2016/06/01 02:51:19 (+0900) ====')
+    assert moc.sent_cnt == 1
+    assert moc.parsed['ltype'] == 'API Request'
+    assert moc.parse_line('[API Response][c6b3d85e-1f60-47e8-a07c-4379db9c2bc6][898 ms] /v2/contents/start')
+    assert moc.parse_line('[Body]')
+    assert moc.parse_line('{')
+    assert moc.parse_line('  "return_code": 1,')
+    assert moc.parse_line('  "url": {')
+    assert moc.parse_line('    "notice_url": "",')
+    assert moc.parse_line('    "event_url": "",')
+    assert moc.parse_line('    "cs_url": "",')
+    assert moc.parse_line('    "faq_url": "",')
+    assert moc.parse_line('    "coupon_url": ""')
+    assert moc.parse_line('  },')
+    assert moc.parse_line('  "maintenance": {')
+    assert moc.parse_line('    "is_open": true,')
+    assert moc.parse_line('    "message": ""')
+    assert moc.parse_line('  },')
+    assert moc.parse_line('  "webzen_kr_auth": null,')
+    assert moc.parse_line('  "webzen_global_auth": null,')
+    assert moc.parse_line('  "naver_auth": null,')
+    assert moc.parse_line('  "google_plus_auth": null,')
+    assert moc.parse_line('  "t_store": null,')
+    assert moc.parse_line('  "n_store": null,')
+    assert moc.parse_line('  "push_notification": {')
+    assert moc.parse_line('    "gcm": "392205420186"')
+    assert moc.parse_line('  },')
+    assert moc.parse_line('  "google_play_game_service": {')
+    assert moc.parse_line('    "client_id": "",')
+    assert moc.parse_line('    "client_secret": ""')
+    assert moc.parse_line('  },')
+    assert moc.parse_line('  "google_auth": null,')
+    assert moc.parse_line('  "memo": "success"')
+    assert moc.parse_line('}')
+    assert moc.buf['memo'] == 'success'
+
+    assert moc.parse_line("==== 2016/06/01 02:51:20 (+0900) ====")
+    assert moc.sent_cnt == 2
