@@ -175,6 +175,7 @@ class FileTailer(object):
         self.parser = parser
         self.pending_mlmsg = None
         self.order_ptrn = self.validate_order_ptrn(order_ptrn)
+        self.parser_compl = 0
 
     def format_body_type(self, format):
         if format:
@@ -542,7 +543,7 @@ class FileTailer(object):
         self.ldebug(1, "sent_pos {} file_pos {} rbytes "
                    "{}".format(sent_pos, file_pos, rbytes))
         if rbytes > 0:
-            scnt = self._may_send_newlines(lines, rbytes, scnt)
+            scnt = self._may_send_newlines(lines, rbytes, scnt, file_path=self.target_path)
 
         # save sent pos
         self.save_sent_pos(sent_pos + rbytes)
@@ -556,24 +557,30 @@ class FileTailer(object):
         else:
             return msg
 
-    def _iterate_lines(self, lines):
+    def _iterate_lines(self, lines, file_path):
         self.ldebug("_iterate_lines")
+        if self.parser:
+            self.parser.set_file_path(file_path)
+
         for line in lines.splitlines():
             if len(line) > 0:
                 parsed = None
                 if self.format:
                     parsed = self.convert_msg(line)
+                    if not parsed:
+                        self.lwarning("can't convert '{}'".format(line))
                 elif self.parser:
                     if self.parser.parse_line(line):
-                        parsed = self.parser.parsed
-                        if parsed and len(parsed) > 0:
+                        if self.parser.completed > self.parser_compl:
                             parsed = self.parser.parsed
+                            self.parser_compl = self.parser.completed
+                    else:
+                        self.lwarning("can't parse '{}'".format(line))
                 if parsed:
                     yield self.attach_msg_extra(parsed)
-                else:
-                    yield line
 
     def _send_newline(self, msg, msgs):
+        # self.ldebug("_send_newline {}".format(msg))
         ts = int(time.time())
         self.may_echo(ts, msg)
         if not BULK_SEND_SIZE:
@@ -585,12 +592,12 @@ class FileTailer(object):
                 self.sender._send(bytes_)
                 msgs[:] = []
 
-    def _may_send_newlines(self, lines, rbytes=None, scnt=0):
-        self.ldebug("_may_send_newlines", "sending {} bytes..".format(rbytes))
+    def _may_send_newlines(self, lines, rbytes=None, scnt=0, file_path=None):
+        # self.ldebug("_may_send_newlines", "sending {} bytes..".format(rbytes))
         if not rbytes:
             rbytes = len(lines)
         try:
-            itr = self._iterate_lines(lines)
+            itr = self._iterate_lines(lines, file_path)
             msgs = []
             for msg in itr:
                 if not msg:

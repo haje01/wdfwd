@@ -5,6 +5,7 @@ import pytest
 from wdfwd import parser as ps
 from wdfwd.parser import custom
 
+
 def test_parser_basic():
     psr = ps.Parser()
 
@@ -139,52 +140,71 @@ parser:
     psr = ps.create_parser(cfg['parser'])
     assert isinstance(psr, custom.FCS)
 
+
 def test_parser_fcs():
     fcs = custom.FCS()
+    fcs.set_file_path("E:\\log\\FCSAdapter.dll.log.20160420-092124.19316")
+    assert fcs.get_date() == '2016-04-20'
     assert fcs.parse_line("E0324 09:26:51.754881  2708 fcs_client.cpp:225] connection closed : 997")
+    assert fcs.buf['dt_'] == '2016-04-20 09:26:51.754'
+    assert fcs.buf['level'] == 'E'
     assert len(fcs.buf) == 6
-    assert fcs.sent_cnt == 0
+    assert fcs.completed == 0
 
     assert fcs.parse_line("E0324 11:37:52.508764  3304 communicator.hpp:128] [8371] response sync")
     assert len(fcs.parsed) == 6
-    assert fcs.sent_cnt == 1
+    assert fcs.completed == 1
 
-    assert fcs.parse_line("[RequestValidateAuthenticationKey]")
+    assert fcs.parse_line(" [RequestValidateAuthenticationKey]")
     assert fcs.buf['type'] == 'ValidateAuthenticationKey'
-    fcs.parse_line(" packet_length : 67")
+    fcs.parse_line("  packet_length : 67")
     assert fcs.buf["req.packet_length"] == '67'
 
-    fcs.parse_line(" packet_type : 0x26")
-    fcs.parse_line(" transaction_id : 8371")
-    fcs.parse_line(" account_no : 1862710")
-    fcs.parse_line(" authentication_key : D7665F56-29E2-4B80-BD8F-C5D37C3654CA")
-    fcs.parse_line(" client_ip : 116.121.77.141")
+    fcs.parse_line("  packet_type : 0x26")
+    fcs.parse_line("  transaction_id : 8371")
+    fcs.parse_line("  account_no : 1862710")
+    fcs.parse_line("  authentication_key : D7665F56-29E2-4B80-BD8F-C5D37C3654CA")
+    fcs.parse_line("  client_ip : 116.121.77.141")
     assert fcs.buf["req.client_ip"] == '116.121.77.141'
 
-    fcs.parse_line("[ResponseValidateAuthenticationKey]")
-    fcs.parse_line(" packet_length : 44")
+    fcs.parse_line(" [ResponseValidateAuthenticationKey]")
+    fcs.parse_line("  packet_length : 44")
     assert fcs.buf["res.packet_length"] == '44'
-    fcs.parse_line(" packet_type : 0x26")
-    fcs.parse_line(" transaction_id : 8371")
-    fcs.parse_line(" result_code : 90213")
-    fcs.parse_line(" condition_type : 0x64")
-    fcs.parse_line(" user_no : 0")
-    fcs.parse_line(" user_id : ")
-    fcs.parse_line(" account_no : 0")
-    fcs.parse_line(" account_id : ")
-    fcs.parse_line(" account_type : 0x00")
-    fcs.parse_line(" block_state : 0x00")
-    fcs.parse_line(" pcbang_index : 0")
-    fcs.parse_line(" phone_auth : ")
-    fcs.parse_line(" is_phone_auth : 0")
-    fcs.parse_line(" auth_ip : ")
+    fcs.parse_line("  packet_type : 0x26")
+    fcs.parse_line("  transaction_id : 8371")
+    fcs.parse_line("  result_code : 90213")
+    fcs.parse_line("  condition_type : 0x64")
+    fcs.parse_line("  user_no : 0")
+    fcs.parse_line("  user_id : ")
+    fcs.parse_line("  account_no : 0")
+    fcs.parse_line("  account_id : ")
+    fcs.parse_line("  account_type : 0x00")
+    fcs.parse_line("  block_state : 0x00")
+    fcs.parse_line("  pcbang_index : 0")
+    fcs.parse_line("  phone_auth : ")
+    fcs.parse_line("  is_phone_auth : 0")
+    fcs.parse_line("  auth_ip : ")
     assert fcs.buf["res.auth_ip"] == ''
 
     fcs.parse_line("E0324 11:39:31.027815  3316 communicator.hpp:128] [8481] response sync")
     assert len(fcs.parsed) == 28
     assert fcs.parsed["res.auth_ip"] == ''
     assert len(fcs.buf) == 6
-    assert fcs.sent_cnt == 2
+    assert fcs.completed == 2
+
+    assert fcs.parse_line("I0420 11:48:24.739433 26224 communicator.hpp:124] [3362162] response sync")
+    fcs.parse_line(" [ResponseGetPCRoomGuid]")
+    fcs.parse_line("  packet_length : 14")
+    fcs.parse_line("  packet_type : 0x34")
+    fcs.parse_line("  transaction_id : 3362162")
+    fcs.parse_line("  result_code : 1")
+    fcs.parse_line("  condition_type : 0x64")
+    fcs.parse_line("  pc_room_guid : 0")
+    assert fcs.buf['level'] == 'I'
+
+    fcs.parse_line("I0420 11:48:24.739433 26224 communicator.hpp:133] [3362162] <total: 0 msec>")
+    assert fcs.buf['transaction_id'] == '3362162'
+    assert fcs.buf['totalms'] == '0'
 
 
 def test_parser_mocca():
@@ -197,7 +217,7 @@ def test_parser_mocca():
     assert moc.parse_line('{"service_code":"SVC009","store_type":"playstore","params":"","client_ip":"192.168.0.11"}')
 
     assert moc.parse_line('==== 2016/06/01 02:51:19 (+0900) ====')
-    assert moc.sent_cnt == 1
+    assert moc.completed == 1
     assert moc.parsed['ltype'] == 'API Request'
     assert moc.parse_line('[API Response][c6b3d85e-1f60-47e8-a07c-4379db9c2bc6][898 ms] /v2/contents/start')
     assert moc.parse_line('[Body]')
@@ -233,4 +253,4 @@ def test_parser_mocca():
     assert moc.buf['memo'] == 'success'
 
     assert moc.parse_line("==== 2016/06/01 02:51:20 (+0900) ====")
-    assert moc.sent_cnt == 2
+    assert moc.completed == 2

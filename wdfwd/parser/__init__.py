@@ -92,6 +92,7 @@ class Group(RegexObj):
             self.taken = None
             return False
 
+
 class KeyValue(object):
     def __init__(self, psr, regex):
         self.psr = psr
@@ -105,7 +106,7 @@ class KeyValue(object):
             if not prefix:
                 self.taken = dict(rd)
             else:
-                self.taken = {'{}.{}'.format(prefix, k): v for k, v in
+                self.taken = {'{}-{}'.format(prefix, k): v for k, v in
                               dict(rd).iteritems()}
             return True
         else:
@@ -136,6 +137,7 @@ class Parser(object):
         self.objects = {}
         self.formats = []
         self.parsed = {}
+        self.completed = 0
 
     def Token(self, name, regex):
         token = Token(self, name, regex)
@@ -167,6 +169,7 @@ class Parser(object):
         for fmt in self.formats:
             if fmt.parse(line):
                 self.parsed = fmt.taken
+                self.completed += 1
                 return True
 
         self.parsed = None
