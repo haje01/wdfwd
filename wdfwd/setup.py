@@ -1,4 +1,5 @@
 import os
+from glob import glob
 
 from distutils.core import setup
 import py2exe  # NOQA
@@ -12,7 +13,8 @@ sys.path.append(WDFWD_DIR)
 
 
 includes = ['wdfwd.get_config', 'wdfwd.const', 'decimal', 'pyodbc', 'bisect']
-
+data_files = [('files', [os.path.join(WDFWD_DIR, 'wdfwd\\default_config.yml')])
+             ]
 
 class Target:
 
@@ -30,8 +32,11 @@ target = Target(
 )
 
 setup(service=[target],
-      options={'py2exe': {
-               'includes': includes,
-               }},
-      data_files=[('files', [os.path.join(WDFWD_DIR,
-                                          'wdfwd\\default_config.yml')])])
+      options={
+          'py2exe': {
+             'includes': includes,
+              'dll_excludes': ['mswsock.dll']
+          }
+      },
+  data_files=data_files
+)
