@@ -31,6 +31,11 @@ log:
         handlers: [file]
     to_url: # RSYNC-SERVER-URL-FOR-LOG ex) rsync-user@myserver.net::rsync-backup/myprj
     fluent: # FLUENT-SERVER-IP-AND-PORT ex) ['localhost', 24224]
+    kinesis:
+            access_key: # AWS Access Key
+            secret_key: # AWS Secret Key
+            stream_name: # AWS Kinesis Stream Name
+            region: # AWS Region ex) ap-northeast-2
 
 
 tailing:
@@ -56,7 +61,11 @@ tailing:
             tag: # FLUENT-TAG  ex) wdfwd.myapp.tlog2
     to:
         fluent: # FLUENT-SERVER-IP-AND-PORT ex) ['localhost', 24224]
-
+        kinesis:
+            access_key: # AWS Access Key
+            secret_key: # AWS Secret Key
+            stream_name: # AWS Kinesis Stream Name
+            region: # AWS Region ex) ap-northeast-2
 
 tasks:
     # Plain folder sync

@@ -12,6 +12,8 @@ import msgpack
 import win32file
 import pywintypes
 from fluent.sender import FluentSender, MAX_SEND_FAIL
+import boto3
+import aws_kinesis_agg
 
 from wdfwd.util import OpenNoLock, get_fileid, escape_path, validate_format as\
     _validate_format, validate_order_ptrn as _validate_order_ptrn
@@ -132,7 +134,9 @@ def _log(fsender, level, tabfunc, _msg):
 
 
 class FileTailer(object):
-    def __init__(self, bdir, ptrn, tag, pdir, fhost, fport,
+    def __init__(self, bdir, ptrn, tag, pdir,
+                 fhost=None, fport=None,
+                 kaccess_key=None, ksecret_key=None, kstream_name=None, kregion=None,
                  send_term=SEND_TERM, update_term=UPDATE_TERM,
                  max_send_fail=None, elatest=None, echo=False, encoding=None,
                  lines_on_start=None, max_between_data=None, format=None,
@@ -154,10 +158,25 @@ class FileTailer(object):
         self.update_term = update_term
         self.last_update = 0
         max_send_fail = max_send_fail if max_send_fail else MAX_SEND_FAIL
-        self.sender = FluentSender(tag, fhost, fport,
-                                   max_send_fail=max_send_fail)
+
+        if fhost and fport:
+            self.sender = FluentSender(tag, fhost, fport, max_send_fail=max_send_fail)
+        elif kaccess_key and ksecret_key:
+            self.kiness_client = boto3.client('kinesis',
+                                              aws_access_key_id=kaccess_key,
+                                              aws_secret_access_key=ksecret_key,
+                                              self.kregion)
+
+        # Fluentd
         self.fhost = fhost
         self.fport = fport
+
+        # AWS Kinesis
+        self.kaccess_key = kaccess_key
+        self.ksecret_key = ksecret_key
+        self.kstream_name = kstream_name
+        self.kregion = kregion
+
         self.pdir = pdir
         self.send_retry = 0
         self.elatest = elatest
@@ -589,7 +608,14 @@ class FileTailer(object):
             msgs.append((ts, msg))
             if len(msgs) >= BULK_SEND_SIZE:
                 bytes_ = self._make_bulk_packet("data", msgs)
-                self.sender._send(bytes_)
+                if self.sender:
+                    self.sender._send(bytes_)
+                elif self.kstream_name:
+                    self.kiness_client.put_record(
+                        StreamName=self.kstream_name,
+                        Data=bytes_,
+                        PartitionKey='0'
+                    )
                 msgs[:] = []
 
     def _may_send_newlines(self, lines, rbytes=None, scnt=0, file_path=None):

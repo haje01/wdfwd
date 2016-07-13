@@ -13,8 +13,8 @@ sys.path.append(WDFWD_DIR)
 
 
 includes = ['wdfwd.get_config', 'wdfwd.const', 'decimal', 'pyodbc', 'bisect']
-data_files = [('files', [os.path.join(WDFWD_DIR, 'wdfwd\\default_config.yml')])
-             ]
+dll_excludes = ['mswsock.dll']
+data_files = [('files', [os.path.join(WDFWD_DIR, 'wdfwd\\default_config.yml')])]
 
 class Target:
 
@@ -35,8 +35,8 @@ setup(service=[target],
       options={
           'py2exe': {
              'includes': includes,
-              'dll_excludes': ['mswsock.dll']
+              'dll_excludes': dll_excludes,
           }
       },
-  data_files=data_files
+      data_files=data_files
 )

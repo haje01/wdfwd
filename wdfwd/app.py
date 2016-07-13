@@ -45,6 +45,7 @@ def start_tailing():
     max_between_data = tailc.get('max_between_data')
     afrom = tailc['from']
     fluent = tailc['to'].get('fluent')
+    kinesis = tailc['to'].get('kinesis')
 
     gformat = tailc.get('format')
     linfo("global log format: '{}'".format(gformat))
@@ -61,16 +62,26 @@ def start_tailing():
     if gorder_ptrn:
         validate_order_ptrn(ldebug, lerror, gorder_ptrn)
 
-    if not fluent:
-        lerror("no fluent server info. return")
+    if not fluent and not kinesis:
+        lerror("no fluent / kinesis server info. return")
         return
-    else:
+    elif fluent:
         # override cfg for test
         fluent_ip = os.environ.get('WDFWD_TEST_FLUENT_IP', fluent[0])
         fluent_port = int(os.environ.get('WDFWD_TEST_FLUENT_PORT', fluent[1]))
         ldebug("pos_dir {}, fluent_ip {}, fluent_port {}".format(pos_dir,
                                                                  fluent_ip,
                                                                  fluent_port))
+    elif kinesis:
+        kinesis_access_key = kinesis.get('access_key')
+        kinesis_secret_key = kinesis.get('secret_key')
+        kinesis_stream_name = kinesis.get('stream_name')
+        kinesis_region = kinesis.get('region')
+        ldebug("pos_dir {}, kinesis_access_key {}, kinesis_secret_key {}, kinesis_stream_name {}, kinesis_region {}".format(pos_dir,
+                                                                                                                    kinesis_access_key,
+                                                                                                                    kinesis_secret_key,
+                                                                                                                    kinesis_stream_name,
+                                                                                                                    kinesis_region))
 
     if len(afrom) == 0:
         ldebug("no source info. return")
@@ -117,19 +128,34 @@ def start_tailing():
             send_term = filec.get('send_term', SEND_TERM)
             update_term = filec.get('update_term', UPDATE_TERM)
             ldebug("start file tail - bdir: '{}', ptrn: '{}', tag: '{}', "
-                   "pos_dir: '{}', fluent: '{}', latest: '{}'".format(bdir,
-                                                                      ptrn,
-                                                                      tag,
-                                                                      pos_dir,
-                                                                      fluent,
-                                                                      latest))
-            tailer = FileTailer(bdir, ptrn, tag, pos_dir, fluent_ip,
-                                fluent_port, send_term=send_term,
-                                update_term=update_term, elatest=latest,
-                                encoding=file_enc,
-                                lines_on_start=lines_on_start,
-                                max_between_data=max_between_data,
-                                format=format, parser=parser, order_ptrn=order_ptrn)
+                   "pos_dir: '{}', latest: '{}'".format(bdir,
+                                                      ptrn,
+                                                      tag,
+                                                      pos_dir,
+                                                      latest))
+
+            if fluent:
+                tailer = FileTailer(bdir, ptrn, tag, pos_dir,
+                                    fluent_ip, fluent_port,
+                                    send_term=send_term,
+                                    update_term=update_term, elatest=latest,
+                                    encoding=file_enc,
+                                    lines_on_start=lines_on_start,
+                                    max_between_data=max_between_data,
+                                    format=format, parser=parser, order_ptrn=order_ptrn)
+            elif kinesis:
+                tailer = FileTailer(bdir, ptrn, tag, pos_dir,
+                                    kaccess_key=kinesis_access_key,
+                                    ksecret_key=kinesis_secret_key,
+                                    kstream_name=kinesis_stream_name,
+                                    kregion=kinesis_region,
+                                    send_term=send_term,
+                                    update_term=update_term, elatest=latest,
+                                    encoding=file_enc,
+                                    lines_on_start=lines_on_start,
+                                    max_between_data=max_between_data,
+                                    format=format, parser=parser, order_ptrn=order_ptrn)
+
             name = "tail{}".format(i+1)
             tailer.trd_name = name
             ldebug("create & start {} thread".format(name))
