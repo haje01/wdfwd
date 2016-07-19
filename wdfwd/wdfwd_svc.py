@@ -19,7 +19,10 @@ if 'fluent' in lcfg:
     fhost = lcfg['fluent'][0]
     fport = lcfg['fluent'][1]
     init_global_fsender('wdfwd.main', fhost, fport)
-
+elif 'kinesis' in lcfg:
+    kaccess_key = lcfg['kinesis']['access_key']
+    ksecret_key = lcfg['kinesis']['secret_key']
+    kregion = lcfg['kinesis']['region']
 
 class WdFwdService(win32serviceutil.ServiceFramework):
     _svc_name_ = scfg['name']
