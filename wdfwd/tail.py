@@ -41,7 +41,7 @@ class TailThread(threading.Thread):
         self.name = name
         tailer.trd_name = name
         self.tailer = tailer
-        self.ldebug("TailThread::__init__ - {}".format(self.name))
+        self.linfo("TailThread::__init__ - {}".format(self.name))
         self._exit = False
 
     def ldebug(self, tabfunc, msg=""):
@@ -53,8 +53,11 @@ class TailThread(threading.Thread):
     def lerror(self, tabfunc, msg=""):
         _log(self.tailer.sender, 'error', tabfunc, msg)
 
+    def linfo(self, tabfunc, msg=""):
+        _log(self.tailer.sender, 'info', tabfunc, msg)
+
     def run(self):
-        self.ldebug("start run")
+        self.linfo("start run")
         self.tailer.update_target(True)
 
         while True:
@@ -68,13 +71,13 @@ class TailThread(threading.Thread):
             except NoTargetFile:
                 self.lwarning("run", "NoTargetfile")
             except Exception, e:
-                self.ldebug("run", str(e))
+                self.linfo("run", str(e))
                 tb = traceback.format_exc()
                 for line in tb.splitlines():
                     self.lerror(line)
 
     def exit(self):
-        self.ldebug("exit")
+        self.linfo("exit")
         self._exit = True
 
 
@@ -140,13 +143,13 @@ class FileTailer(object):
 
         self.trd_name = ""
         self.sender = None
-        self.ldebug("__init__", "max_send_fail: '{}'".format(max_send_fail))
+        self.linfo("__init__", "max_send_fail: '{}'".format(max_send_fail))
         self.bdir = bdir
         self.ptrn = ptrn
         self.sname = socket.gethostname()
         self.saddr = socket.gethostbyname(self.sname)
         tag = "{}.{}".format(self.sname.lower(), tag)
-        self.ldebug(1, "tag: '{}'".format(tag))
+        self.linfo(1, "tag: '{}'".format(tag))
         self.tag = tag
         self.target_path = self.target_fid = None
         self.send_term = send_term
@@ -169,13 +172,14 @@ class FileTailer(object):
         self.max_between_data = max_between_data if max_between_data else\
             MAX_BETWEEN_DATA
         self._reset_ml_msg()
-        self.ldebug("effective format: '{}'".format(format))
+        self.linfo("effective format: '{}'".format(format))
         self.format = self.validate_format(format)
         self.fmt_body = self.format_body_type(format)
         self.parser = parser
         self.pending_mlmsg = None
         self.order_ptrn = self.validate_order_ptrn(order_ptrn)
         self.parser_compl = 0
+        self.no_format = False
 
     def format_body_type(self, format):
         if format:
@@ -191,6 +195,9 @@ class FileTailer(object):
     def ldebug(self, tabfunc, msg=""):
         _log(self.sender, 'debug', tabfunc, msg)
 
+    def linfo(self, tabfunc, msg=""):
+        _log(self.sender, 'info', tabfunc, msg)
+
     def lwarning(self, tabfunc, msg=""):
         _log(self.sender, 'warning', tabfunc, msg)
 
@@ -202,18 +209,18 @@ class FileTailer(object):
             raise NoTargetFile()
 
     def _tmain_may_update_target(self, cur):
-        # self.ldebug("_tmain_may_update_target")
+        self.ldebug("_tmain_may_update_target")
         if cur - self.last_update >= self.update_term:
-            # self.ldebug(1, "{} > {}".format(cur - self.last_update,
-            #                                 self.update_term))
+            self.ldebug(1, "{} > {}".format(cur - self.last_update,
+                                            self.update_term))
             self.last_update = cur
             self.update_target()
 
     def _tmain_may_send_newlines(self, cur, scnt, netok):
-        # self.ldebug("_tmain_may_send_newlines")
+        self.ldebug("_tmain_may_send_newlines")
         if cur - self.last_send_try >= self.send_term:
-            # self.ldebug(1, "{} >= {}".format(cur - self.last_send_try,
-            #                                 self.send_term))
+            self.ldebug(1, "{} >= {}".format(cur - self.last_send_try,
+                                             self.send_term))
             try:
                 self.last_send_try = cur
                 scnt = self.may_send_newlines()
@@ -231,7 +238,7 @@ class FileTailer(object):
 
     def tmain(self):
         cur = time.time()
-        # self.ldebug("tmain {}".format(cur))
+        self.ldebug("tmain {}".format(cur))
 
         # send new lines when need
         sent_line = 0
@@ -269,8 +276,8 @@ class FileTailer(object):
     def set_target(self, target):
         changed = self.target_path != target
         if changed:
-            self.ldebug("set_target from '{}' to '{}'".format(self.target_path,
-                                                              target))
+            self.linfo("set_target from '{}' to '{}'".format(self.target_path,
+                                                             target))
             self.target_path = target
             self.target_fid = None
             if target:
@@ -283,7 +290,7 @@ class FileTailer(object):
         return changed
 
     def _update_elatest_target(self, files):
-        self.ldebug("_update_elatest_target")
+        self.linfo("_update_elatest_target")
         epath, efid = self.get_elatest_info()
 
         if efid:
@@ -311,7 +318,7 @@ class FileTailer(object):
                     ret = 2
 
         if ret > 0:
-            self.ldebug(1, "reset target to delegate update_target")
+            self.linfo(1, "reset target to delegate update_target")
             self.save_sent_pos(0)
             self.set_target(None)
         return ret
@@ -344,9 +351,9 @@ class FileTailer(object):
                 self.lerror(1, "pre-elatest files are not exist!")
                 return True
             pre_elatest = files[-1]
-            self.ldebug("pre-elatest is '{}'".format(pre_elatest))
+            self.linfo("pre-elatest is '{}'".format(pre_elatest))
 
-            self.ldebug(1, "move sent pos & clear elatest sent pos")
+            self.linfo(1, "move sent pos & clear elatest sent pos")
             # even elatest file not exist, there might be pos file
             self._save_sent_pos(pre_elatest, self.get_sent_pos(epath))
             # reset elatest sent_pos
@@ -358,10 +365,10 @@ class FileTailer(object):
         return False
 
     def get_sorted_target_files(self):
-        self.ldebug("get_sorted_target_files")
+        self.linfo("get_sorted_target_files")
         files = glob.glob(os.path.join(self.bdir, self.ptrn))
         if self.order_ptrn:
-            self.ldebug("order_ptrn {}".format(self.order_ptrn))
+            self.linfo("order_ptrn {}".format(self.order_ptrn))
             order_key = {}
             for afile in files:
                 match = self.order_ptrn.search(afile)
@@ -372,17 +379,17 @@ class FileTailer(object):
                 gd = match.groupdict()
                 order_key[afile] = gd['date'] +\
                     ".{:06d}".format(int(gd['order']))
-                # self.ldebug("order_key - {}".format(order_key[afile]))
+                self.ldebug("order_key - {}".format(order_key[afile]))
             return sorted(files, key=lambda f: order_key[f])
         else:
             self.ldebug("files {}".format(files))
             return files
 
     def update_target(self, start=False):
-        self.ldebug("update_target")
+        self.linfo("update_target")
 
         files = self.get_sorted_target_files()
-        self.ldebug(1, "{} target files".format(len(files)))
+        self.linfo(1, "{} target files".format(len(files)))
 
         if self.elatest is not None:
             self._update_elatest_target(files)
@@ -400,13 +407,13 @@ class FileTailer(object):
             newt = self.set_target(tpath)
 
         if newt:
-            self.ldebug(1, "new target {}".format(self.target_path))
+            self.linfo(1, "new target {}".format(self.target_path))
             if start:
                 self.start_sent_pos(self.target_path)
             else:
                 self.update_sent_pos(self.target_path)
         else:
-            self.ldebug(1, "cur target {}".format(self.target_path))
+            self.linfo(1, "cur target {}".format(self.target_path))
 
     def get_file_pos(self, path=None):
         if path is None:
@@ -414,7 +421,7 @@ class FileTailer(object):
             tpath = self.target_path
         else:
             tpath = path
-        # self.ldebug("get_file_pos", "for {}".format(tpath))
+        self.ldebug("get_file_pos", "for {}".format(tpath))
         try:
             with OpenNoLock(tpath) as fh:
                 return win32file.GetFileSize(fh)
@@ -426,10 +433,10 @@ class FileTailer(object):
             raise
 
     def validate_format(self, fmt):
-        return _validate_format(self.ldebug, self.lerror, fmt)
+        return _validate_format(self.linfo, self.lerror, fmt)
 
     def validate_order_ptrn(self, fmt):
-        return _validate_order_ptrn(self.ldebug, self.lerror, fmt)
+        return _validate_order_ptrn(self.linfo, self.lerror, fmt)
 
     def _convert_matched_msg(self, match):
         has_body = False
@@ -437,7 +444,7 @@ class FileTailer(object):
 
         if self.fmt_body == FMT_JSON_BODY:
             if '_json_' in gd:
-                self.ldebug(1, "json data found")
+                self.linfo(1, "json data found")
                 has_body = True
                 try:
                     msg = json.loads(gd['_json_'])
@@ -449,7 +456,7 @@ class FileTailer(object):
                 self.lwarning(1, "no json body found: {}'".format(msg[:50]))
         elif self.fmt_body == FMT_TEXT_BODY:
             if '_text_' in gd:
-                self.ldebug(1, "text data found")
+                self.linfo(1, "text data found")
                 has_body = True
                 msg = {}
                 msg['message'] = gd['_text_']
@@ -469,12 +476,12 @@ class FileTailer(object):
         return msg
 
     def convert_msg(self, msg):
-        self.ldebug("convert_msg")
+        self.linfo("convert_msg")
         if self.encoding:
             msg = msg.decode(self.encoding).encode('utf8')
 
         parsed = None
-        # self.ldebug(1, "try match format")
+        self.ldebug(1, "try match format")
         match = self.format.search(msg)
         if match:
             parsed = self._convert_matched_msg(match)
@@ -504,7 +511,7 @@ class FileTailer(object):
         return ''.join(lines), rbytes
 
     def get_elatest_info(self):
-        self.ldebug("get_elatst_info")
+        self.linfo("get_elatst_info")
         if self.elatest:
             epath = os.path.join(self.bdir, self.elatest)
             efid = None
@@ -519,12 +526,12 @@ class FileTailer(object):
     def may_send_newlines(self):
         self.raise_if_notarget()
 
-        # self.ldebug("may_send_newlines")
+        self.ldebug("may_send_newlines")
 
         # skip if no newlines
         file_pos = self.get_file_pos()
         sent_pos = self.get_sent_pos()
-        # self.ldebug("file_pos {}, sent_pos {}".format(file_pos, sent_pos))
+        self.ldebug("file_pos {}, sent_pos {}".format(file_pos, sent_pos))
         if sent_pos >= file_pos:
             if sent_pos > file_pos:
                 self.lerror("sent_pos {} > file_pos {}. pos"
@@ -541,9 +548,10 @@ class FileTailer(object):
 
         scnt = 0
         self.ldebug(1, "sent_pos {} file_pos {} rbytes "
-                   "{}".format(sent_pos, file_pos, rbytes))
+                       "{}".format(sent_pos, file_pos, rbytes))
         if rbytes > 0:
-            scnt = self._may_send_newlines(lines, rbytes, scnt, file_path=self.target_path)
+            scnt = self._may_send_newlines(lines, rbytes, scnt,
+                                           file_path=self.target_path)
 
         # save sent pos
         self.save_sent_pos(sent_pos + rbytes)
@@ -558,7 +566,7 @@ class FileTailer(object):
             return msg
 
     def _iterate_lines(self, lines, file_path):
-        self.ldebug("_iterate_lines")
+        self.linfo("_iterate_lines")
         if self.parser:
             self.parser.set_file_path(file_path)
 
@@ -576,11 +584,16 @@ class FileTailer(object):
                             self.parser_compl = self.parser.completed
                     else:
                         self.lwarning("can't parse '{}'".format(line))
+                else:
+                    self.lwarning("no format / parser exists. send raw "
+                                  "message")
+                    yield line
+
                 if parsed:
                     yield self.attach_msg_extra(parsed)
 
     def _send_newline(self, msg, msgs):
-        # self.ldebug("_send_newline {}".format(msg))
+        self.ldebug("_send_newline {}".format(msg))
         ts = int(time.time())
         self.may_echo(ts, msg)
         if not BULK_SEND_SIZE:
@@ -593,7 +606,7 @@ class FileTailer(object):
                 msgs[:] = []
 
     def _may_send_newlines(self, lines, rbytes=None, scnt=0, file_path=None):
-        # self.ldebug("_may_send_newlines", "sending {} bytes..".format(rbytes))
+        self.ldebug("_may_send_newlines", "sending {} bytes..".format(rbytes))
         if not rbytes:
             rbytes = len(lines)
         try:
@@ -602,7 +615,7 @@ class FileTailer(object):
             for msg in itr:
                 if not msg:
                     # skip bad form message (can't parse)
-                    self.ldebug("skip bad form message")
+                    self.linfo("skip bad form message")
                     continue
                 self._send_newline(msg, msgs)
                 scnt += 1
@@ -686,7 +699,7 @@ class FileTailer(object):
         """
             update sent pos for for new target
         """
-        self.ldebug("update_sent_pos", "updating for '{}'..".format(tpath))
+        self.linfo("update_sent_pos", "updating for '{}'..".format(tpath))
         # try to read position file
         # which is needed to continue send after temporal restart
         tname = escape_path(tpath)
@@ -697,22 +710,22 @@ class FileTailer(object):
                 line = f.readline()
                 elm = line.split(',')
                 pos = int(elm[0])
-            self.ldebug(1, "found pos file - {}: {}".format(ppath, pos))
+            self.linfo(1, "found pos file - {}: {}".format(ppath, pos))
         else:
-            self.ldebug(1, "can't find pos file for {}, save as "
-                        "0".format(tpath))
+            self.linfo(1, "can't find pos file for {}, save as "
+                          "0".format(tpath))
             self._save_sent_pos(tpath, 0)
         return pos
 
     def save_sent_pos(self, pos):
-        self.ldebug("save_sent_pos")
+        self.linfo("save_sent_pos")
         self.raise_if_notarget()
 
         # save pos file
         self._save_sent_pos(self.target_path, pos)
 
     def _save_sent_pos(self, tpath, pos):
-        self.ldebug(1, "_save_sent_pos for {} - {}".format(tpath, pos))
+        self.linfo(1, "_save_sent_pos for {} - {}".format(tpath, pos))
         tname = escape_path(tpath)
         path = os.path.join(self.pdir, tname + '.pos')
         with open(path, 'w') as f:

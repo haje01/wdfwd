@@ -27,7 +27,7 @@ log:
             maxBytes: 10485760
             backupCount: 10
     root:
-        level: DEBUG
+        level: INFO
         handlers: [file]
     to_url: # RSYNC-SERVER-URL-FOR-LOG ex) rsync-user@myserver.net::rsync-backup/myprj
     fluent: # FLUENT-SERVER-IP-AND-PORT ex) ['localhost', 24224]
