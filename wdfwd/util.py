@@ -4,10 +4,16 @@ import tempfile
 import time
 import re
 from subprocess import check_call as _check_call, CalledProcessError
+from base64 import b64decode
 
 import win32file
+import boto3
+from botocore.exceptions import ClientError
+
 
 fsender = None
+KN_TEST_STREAM = 'wdfwd-test'
+
 
 def cap_call(cmd, retry=0, _raise=True, _test=False):
     logging.info('cap_call cmd: {}, retry: {}'.format(cmd, _raise))
@@ -158,6 +164,7 @@ def init_global_fsender(tag, host, port):
         fsender = FluentSender(tag, host, port)
         linfo("init_global_fsender")
 
+
 def _log(level, msg):
     if logging.getLogger().getEffectiveLevel() > getattr(logging,
                                                          level.upper()):
@@ -197,6 +204,7 @@ def lcritical(msg):
 def lheader(msg):
     lcritical("============================== {} "
               "==============================".format(msg))
+
 
 def escape_path(path):
     return path.replace("\\", "__").replace(":", "__")
@@ -240,3 +248,87 @@ def validate_order_ptrn(ldebug, lerror, ptrn):
     except Exception, e:
         lerror("validate_order_ptrn - '{}'".format(e))
         raise InvalidOrderPtrn()
+
+
+def prepare_kinesis_test():
+    knc = boto3.client('kinesis')
+
+    while True:
+        try:
+            ret = knc.describe_stream(StreamName=KN_TEST_STREAM)
+        except ClientError as e:
+            if 'ResourceNotFoundException' in str(e):
+                print("Not found test stream. Create new one")
+                knc.create_stream(StreamName=KN_TEST_STREAM, ShardCount=1)
+                continue
+            else:
+                raise
+
+        status = ret['StreamDescription']['StreamStatus']
+        if status == 'ACTIVE':
+            break
+        print("Waiting for kinesis stream active. current status: "
+              "{}".format(status))
+        time.sleep(4)
+
+    return knc
+
+
+def aws_lambda_dform(rec):
+    return dict(
+        kinesis=dict(
+            partitionKey=rec['PartitionKey'],
+            sequenceNumber=rec['SequenceNumber'],
+            data=rec['Data'],
+            aggregated=True,
+            kinesisSchemaVersion="1.0"
+        )
+    )
+
+
+def iter_kinesis_records(knc, shid, seqn):
+    from aws_kinesis_agg import deaggregator
+
+    ret = knc.get_shard_iterator(
+        StreamName=KN_TEST_STREAM,
+        ShardId=shid,
+        ShardIteratorType='AT_SEQUENCE_NUMBER',
+        StartingSequenceNumber=seqn
+    )
+    assert 'ShardIterator' in ret
+    shdit = ret['ShardIterator']
+    rcnt = 0
+    while True:
+        ret = knc.get_records(ShardIterator=shdit)
+        if len(ret['Records']) == 0:
+            break
+        assert 'Records' in ret
+        records = ret['Records']
+        for _rec in records:
+            rec = aws_lambda_dform(_rec)
+            dret = deaggregator.deaggregate_records(rec)
+            data = b64decode(dret[0]['kinesis']['data'])
+            yield data
+
+        shdit = ret['NextShardIterator']
+
+
+def query_aws_client(service, region, access_key, secret_key):
+    base_dir = os.path.dirname(__file__).split(os.path.sep)[:-2]
+    base_dir = os.path.sep.join(base_dir)
+    cacert_path = os.path.join(base_dir, 'data', 'cacert.pem')
+    data_dir = os.path.join(base_dir, 'data')
+    print '-----------------------------'
+    print(cacert_path, data_dir)
+    session = boto3.session.Session()
+    session._loader.search_paths.append(data_dir)
+    knc = session.client(service, use_ssl=True, verify=cacert_path,
+                         region_name=region, aws_access_key_id=access_key,
+                         aws_secret_access_key=secret_key)
+    return knc
+
+def supress_boto3_log():
+    # supress boto3 logging level
+    logging.getLogger('boto3').setLevel(logging.WARNING)
+    logging.getLogger('botocore').setLevel(logging.WARNING)
+    logging.getLogger('nose').setLevel(logging.WARNING)

@@ -1,3 +1,7 @@
+0.1.2
+=====
+- Support tail to AWS Kineis stream
+
 0.1.1
 =====
 - Support parser formatter & custom parser

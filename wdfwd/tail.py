@@ -8,15 +8,18 @@ from StringIO import StringIO
 import traceback
 import json
 import msgpack
+from base64 import b64encode
+from collections import namedtuple
 
 import win32file
 import pywintypes
 from fluent.sender import FluentSender, MAX_SEND_FAIL
 import boto3
-import aws_kinesis_agg
+from aws_kinesis_agg import aggregator
 
 from wdfwd.util import OpenNoLock, get_fileid, escape_path, validate_format as\
-    _validate_format, validate_order_ptrn as _validate_order_ptrn
+    _validate_format, validate_order_ptrn as _validate_order_ptrn,\
+    query_aws_client
 
 MAX_READ_BUF = 1000 * 1000
 MAX_SEND_RETRY = 5
@@ -27,6 +30,9 @@ FMT_NO_BODY = 0
 FMT_JSON_BODY = 1
 FMT_TEXT_BODY = 2
 BULK_SEND_SIZE = 100
+
+FluentCfg = namedtuple('FluentCfg', ['host', 'port'])
+KinesisCfg = namedtuple('KinesisCfg', ['stream_name', 'region', 'access_key', 'secret_key'])
 
 
 class NoTargetFile(Exception):
@@ -47,16 +53,16 @@ class TailThread(threading.Thread):
         self._exit = False
 
     def ldebug(self, tabfunc, msg=""):
-        _log(self.tailer.sender, 'debug', tabfunc, msg)
+        _log(self.tailer, 'debug', tabfunc, msg)
 
     def lwarning(self, tabfunc, msg=""):
-        _log(self.tailer.sender, 'warning', tabfunc, msg)
+        _log(self.tailer, 'warning', tabfunc, msg)
 
     def lerror(self, tabfunc, msg=""):
-        _log(self.tailer.sender, 'error', tabfunc, msg)
+        _log(self.tailer, 'error', tabfunc, msg)
 
     def linfo(self, tabfunc, msg=""):
-        _log(self.tailer.sender, 'info', tabfunc, msg)
+        _log(self.tailer, 'info', tabfunc, msg)
 
     def run(self):
         self.linfo("start run")
@@ -114,7 +120,7 @@ def get_file_lineinfo(path, post_lines=None):
     return nlines, pos
 
 
-def _log(fsender, level, tabfunc, _msg):
+def _log(tail, level, tabfunc, _msg):
     if logging.getLogger().getEffectiveLevel() > getattr(logging,
                                                          level.upper()):
         return
@@ -128,25 +134,32 @@ def _log(fsender, level, tabfunc, _msg):
         msg = "{}".format(tabfunc)
 
     lfun(msg)
-    if fsender:
-        ts = int(time.time())
+    ts = int(time.time())
+    if tail.fsender:
         try:
-            fsender.emit_with_time("{}".format(level), ts, {"message": msg})
+            tail.fsender.emit_with_time("{}".format(level), ts, {"message": msg})
         except Exception, e:
             logging.warning("_log", "send fail '{}'".format(e))
+    elif tail.kclient:
+        data = dict(ts_=ts, level_=level, message=msg)
+        ret = tail.kclient.put_record(
+            StreamName=tail.kstream_name,
+            Data=b64encode(str(data)),
+            PartitionKey="0"
+        )
 
 
 class FileTailer(object):
     def __init__(self, bdir, ptrn, tag, pdir,
-                 fhost=None, fport=None,
-                 kaccess_key=None, ksecret_key=None, kstream_name=None, kregion=None,
+                 stream_cfg,
                  send_term=SEND_TERM, update_term=UPDATE_TERM,
                  max_send_fail=None, elatest=None, echo=False, encoding=None,
                  lines_on_start=None, max_between_data=None, format=None,
                  parser=None, order_ptrn=None):
 
         self.trd_name = ""
-        self.sender = None
+        self.fsender = self.kclient = None
+        self.ksent_seqn = self.ksent_shid = None
         self.linfo("__init__", "max_send_fail: '{}'".format(max_send_fail))
         self.bdir = bdir
         self.ptrn = ptrn
@@ -160,26 +173,22 @@ class FileTailer(object):
         self.last_send_try = 0
         self.update_term = update_term
         self.last_update = 0
+        self.kpk_cnt = 0  # count for kinesis partition key
         max_send_fail = max_send_fail if max_send_fail else MAX_SEND_FAIL
 
-        if fhost and fport:
-            self.sender = FluentSender(tag, fhost, fport, max_send_fail=max_send_fail)
-        elif kaccess_key and ksecret_key:
-            self.kiness_client = boto3.client('kinesis',
-                                              aws_access_key_id=kaccess_key,
-                                              aws_secret_access_key=ksecret_key,
-                                              self.kregion)
-
-        # Fluentd
-        self.fhost = fhost
-        self.fport = fport
+        tstc = type(stream_cfg)
+        if tstc == FluentCfg:
+            host, port = stream_cfg
+            self.fsender = FluentSender(tag, host, port, max_send_fail=max_send_fail)
+        elif tstc == KinesisCfg:
+            stream_name, region, access_key, secret_key = stream_cfg
+            self.kstream_name = stream_name
+            self.ldebug('query_aws_client kinesis {}'.format(region))
+            self.kclient = query_aws_client('kinesis', region, access_key,
+                                            secret_key)
+            self.kagg = aggregator.RecordAggregator()
 
         # AWS Kinesis
-        self.kaccess_key = kaccess_key
-        self.ksecret_key = ksecret_key
-        self.kstream_name = kstream_name
-        self.kregion = kregion
-
         self.pdir = pdir
         self.send_retry = 0
         self.elatest = elatest
@@ -212,16 +221,16 @@ class FileTailer(object):
         self.ml_msg = dict(message=[])
 
     def ldebug(self, tabfunc, msg=""):
-        _log(self.sender, 'debug', tabfunc, msg)
+        _log(self, 'debug', tabfunc, msg)
 
     def linfo(self, tabfunc, msg=""):
-        _log(self.sender, 'info', tabfunc, msg)
+        _log(self, 'info', tabfunc, msg)
 
     def lwarning(self, tabfunc, msg=""):
-        _log(self.sender, 'warning', tabfunc, msg)
+        _log(self, 'warning', tabfunc, msg)
 
     def lerror(self, tabfunc, msg=""):
-        _log(self.sender, 'error', tabfunc, msg)
+        _log(self, 'error', tabfunc, msg)
 
     def raise_if_notarget(self):
         if self.target_path is None:
@@ -616,20 +625,52 @@ class FileTailer(object):
         ts = int(time.time())
         self.may_echo(ts, msg)
         if not BULK_SEND_SIZE:
-            self.sender.emit_with_time("data", ts, msg)
+            self.fsender.emit_with_time("data", ts, msg)
         else:
             msgs.append((ts, msg))
             if len(msgs) >= BULK_SEND_SIZE:
-                bytes_ = self._make_bulk_packet("data", msgs)
-                if self.sender:
-                    self.sender._send(bytes_)
-                elif self.kstream_name:
-                    self.kiness_client.put_record(
-                        StreamName=self.kstream_name,
-                        Data=bytes_,
-                        PartitionKey='0'
-                    )
+                if self.fsender:
+                    bytes_ = self._make_fluent_bulk(msgs)
+                    self.fsender._send(bytes_)
+                elif self.kclient:
+                    self._kinesis_put(msgs)
                 msgs[:] = []
+
+    def _kinesis_put(self, msgs):
+        self.kpk_cnt += 1  # round robin shards
+        pk = str(self.kpk_cnt)
+        pk, ehk, data = self._make_kinesis_agg(pk, msgs)
+        ret = self.kclient.put_record(
+            StreamName=self.kstream_name,
+            Data=b64encode(data),
+            PartitionKey=pk,
+            ExplicitHashKey=ehk
+        )
+        stat = ret['ResponseMetadata']['HTTPStatusCode']
+        shid = ret['ShardId']
+        seqn = ret['SequenceNumber']
+        self.ksent_seqn = seqn
+        self.ksent_shid = shid
+        if stat == 200:
+            self.linfo("Kinesis put success: ShardId: {}, SequenceNumber: "
+                       "{}".format(shid, seqn))
+        else:
+            self.error("Kineis put failed!: "
+                       "{}".format(ret['ResponseMetadata']))
+
+    def _make_kinesis_agg(self, pk, msgs):
+        for msg in msgs:
+            data = {'tag_': self.tag + '.data', 'ts_': msg[0]}
+            if type(msg[1]) == dict:
+                data.update(msg[1])
+            else:
+                data['value_'] = msg[1]
+            res = self.kagg.add_user_record(pk, str(data))
+            if res:
+                self.lerror(1, "unencoded data size fit 1MB, possible over sized"
+                            " data after b64encode. reduce BULK_SEND_SIZE!")
+        res = self.kagg.clear_and_get()
+        return res.get_contents()
 
     def _may_send_newlines(self, lines, rbytes=None, scnt=0, file_path=None):
         self.ldebug("_may_send_newlines", "sending {} bytes..".format(rbytes))
@@ -646,10 +687,14 @@ class FileTailer(object):
                 self._send_newline(msg, msgs)
                 scnt += 1
 
-            # send remail bulk msgs
+            # send remain bulk msgs
             if BULK_SEND_SIZE and len(msgs) > 0:
-                bytes_ = self._make_bulk_packet("data", msgs)
-                self.sender._send(bytes_)
+                if self.fsender:
+                    bytes_ = self._make_fluent_bulk(msgs)
+                    self.fsender._send(bytes_)
+                elif self.kclient:
+                    self._kinesis_put(msgs)
+
         except Exception, e:
             self.lwarning(1, "send fail '{}'".format(e))
             self.send_retry += 1
@@ -664,8 +709,8 @@ class FileTailer(object):
         self.send_retry = 0
         return scnt
 
-    def _make_bulk_packet(self, label, msgs):
-        tag = '.'.join((self.tag, label))
+    def _make_fluent_bulk(self, msgs):
+        tag = '.'.join((self.tag, "data"))
         bulk = [msgpack.packb((tag, ts, data)) for ts, data in msgs]
         return ''.join(bulk)
 

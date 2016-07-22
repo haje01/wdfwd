@@ -13,3 +13,9 @@ wdfwd/dist/
 wdfwd/test_dist/
 wdfwd/tests/tlog/
 _*.yml
+config.yml
+real_env.bat
+test_env.bat
+wlog_test.py
+tail_kinesis.py
+

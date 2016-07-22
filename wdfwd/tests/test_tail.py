@@ -6,8 +6,9 @@ import shutil
 import pytest
 
 from wdfwd.get_config import get_config
-from wdfwd.tail import FileTailer, NoTargetFile, TailThread, get_file_lineinfo
-from wdfwd.util import InvalidLogFormat
+from wdfwd.tail import FileTailer, NoTargetFile, TailThread, get_file_lineinfo,\
+    FluentCfg, KinesisCfg
+from wdfwd.util import InvalidLogFormat, KN_TEST_STREAM, iter_kinesis_records
 
 cfg = get_config()
 
@@ -16,6 +17,7 @@ pos_dir = tcfg.get('pos_dir')
 fluent = tcfg['to']['fluent']
 fluent_ip = os.environ.get('WDFWD_TEST_FLUENT_IP')
 fluent_port = int(os.environ.get('WDFWD_TEST_FLUENT_PORT', 0))
+fcfg = FluentCfg(fluent_ip, fluent_port)
 
 
 @pytest.fixture(scope='function')
@@ -36,12 +38,29 @@ def ftail():
     return _ftail()
 
 
+@pytest.fixture(scope='function')
+def ktail():
+    return _ktail()
+
+
 def _ftail():
     finfo = tcfg['from'][0]['file']
     bdir = finfo['dir']
     ptrn = finfo['pattern']
     tag = finfo['tag']
-    tail = FileTailer(bdir, ptrn, tag, pos_dir, fluent_ip, fluent_port,
+    tail = FileTailer(bdir, ptrn, tag, pos_dir, fcfg,
+                      send_term=0, update_term=0, echo=True,
+                      max_between_data=100 * 100)
+    return tail
+
+
+def _ktail():
+    finfo = tcfg['from'][0]['file']
+    bdir = finfo['dir']
+    ptrn = finfo['pattern']
+    tag = finfo['tag']
+    kcfg = KinesisCfg(KN_TEST_STREAM, None, None, None)
+    tail = FileTailer(bdir, ptrn, tag, pos_dir, kcfg,
                       send_term=0, update_term=0, echo=True,
                       max_between_data=100 * 100)
     return tail
@@ -52,9 +71,8 @@ def ftail2():
     finfo = tcfg['from'][0]['file']
     bdir = finfo['dir']
     ptrn = "tailtest2_*-*-*.log"
-    ftail2 = FileTailer(bdir, ptrn, 'wdfwd.tail2', pos_dir, fluent_ip,
-                        fluent_port, send_term=0, update_term=0, echo=True,
-                        max_between_data=100*100)
+    ftail2 = FileTailer(bdir, ptrn, 'wdfwd.tail2', pos_dir, fcfg, send_term=0,
+                        update_term=0, echo=True, max_between_data=100*100)
     return ftail2
 
 
@@ -112,25 +130,74 @@ def test_tail_file_basic(rmlogs, ftail):
     assert ftail.may_send_newlines() == 996
 
 
-def test_tail_file_rotate(rmlogs, ftail):
+def test_tail_file_kinesis(rmlogs, ktail):
+    assert ktail.kclient is not None
+    path = os.path.join(ktail.bdir, 'tailtest_2016-03-30.log')
+    with open(path, 'w') as f:
+        f.write('1\n')
+
+    ktail.update_target()
+
+    assert ktail.target_path.endswith("tailtest_2016-03-30.log")
+    assert ktail.target_fid
+    assert ktail.get_file_pos() == 3
+    # send previous data if it has moderate size
+    assert ktail.get_sent_pos() == 0
+    assert ktail.may_send_newlines() == 1
+
+    with open(path, 'a') as f:
+        f.write('2\n')
+    # send new line
+    assert ktail.get_file_pos() == 6
+    assert ktail.may_send_newlines() == 1
+    assert ktail.get_sent_pos() == 6
+
+    # send again send nothing
+    assert ktail.may_send_newlines() == 0
+
+    with open(path, 'a') as f:
+        f.write('3\n')
+        f.write('4\n')
+
+    assert ktail.get_file_pos() == 12
+    assert ktail.may_send_newlines() == 2
+    assert ktail.get_sent_pos() == 12
+    # not changed, send nothing
+    assert ktail.may_send_newlines() == 0
+
+    # stress test
+    with open(path, 'a') as f:
+        for i in xrange(4, 1000):
+            f.write('{}\n'.format(i))
+    assert ktail.may_send_newlines() == 996
+
+
+    knc = ktail.kclient
+    shid = ktail.ksent_shid
+    seqn = ktail.ksent_seqn
+    for rec in iter_kinesis_records(knc, shid, seqn):
+        assert 'ts_' in rec
+
+
+def test_tail_file_rotate(rmlogs, ktail):
     for i in range(1, 30):
-        path = os.path.join(ftail.bdir,
+        path = os.path.join(ktail.bdir,
                             'tailtest_2016-03-{:02d}.log'.format(i))
         with open(path, 'w') as f:
             f.write('{}\n'.format(i))
 
-    ftail.update_target()
-    assert os.path.basename(ftail.target_path) == 'tailtest_2016-03-29.log'
-    assert ftail.may_send_newlines() == 1
+    ktail.update_target()
+    assert os.path.basename(ktail.target_path) == 'tailtest_2016-03-29.log'
+    assert ktail.may_send_newlines() == 1
 
     # new file
-    path = os.path.join(ftail.bdir, 'tailtest_2016-03-30.log')
+    path = os.path.join(ktail.bdir, 'tailtest_2016-03-30.log')
     with open(path, 'w') as f:
         f.write('30\n')
 
-    ftail.update_target()
-    assert os.path.basename(ftail.target_path) == 'tailtest_2016-03-30.log'
-    assert ftail.may_send_newlines() == 1
+    ktail.update_target()
+    assert os.path.basename(ktail.target_path) == 'tailtest_2016-03-30.log'
+    assert ktail.may_send_newlines() == 1
 
 
 def test_tail_file_multi(rmlogs, ftail, ftail2):
@@ -368,8 +435,8 @@ def test_tail_file_elatest1(rmlogs):
         f.write('A\n')
 
     ptrn = "tailtest3_*-*-*.log"
-    ftail = FileTailer(bdir, ptrn, 'wdfwd.tail', pos_dir, fluent_ip,
-                       fluent_port, 0, elatest=EXP_LATEST,
+    ftail = FileTailer(bdir, ptrn, 'wdfwd.tail', pos_dir, fcfg, 0,
+                       elatest=EXP_LATEST,
                        order_ptrn=r'(?P<date>[^\.]+)\.(?P<order>\d+)\.log')
     ftail.update_target()
     rotated = ftail.handle_elatest_rotation()
@@ -452,8 +519,8 @@ def test_tail_file_elatest2(rmlogs):
         f.write('A\n')
 
     ptrn = "tailtest3_*-*-*.log"
-    ftail = FileTailer(bdir, ptrn, 'wdfwd.tail', pos_dir, fluent_ip,
-                       fluent_port, 0, elatest=EXP_LATEST)
+    ftail = FileTailer(bdir, ptrn, 'wdfwd.tail', pos_dir, fcfg, 0,
+                       elatest=EXP_LATEST)
     ftail.update_target()
     rotated, psent_pos, sent_line = ftail.tmain()
 
@@ -478,6 +545,7 @@ def test_tail_file_elatest2(rmlogs):
         f.write('a\n')
         f.write('b\n')
         f.write('c\n')
+    time.sleep(1)
 
     rotated, psent_pos, sent_line = ftail.tmain()
     assert rotated
@@ -554,14 +622,14 @@ def test_tail_file_startline(rmlogs):
         for i in range(100):
             f.write('{}\n'.format(i))
 
-    tail = FileTailer(bdir, ptrn, tag, pos_dir, fluent_ip, fluent_port,
-                      send_term=0, update_term=0, echo=True, lines_on_start=0)
+    tail = FileTailer(bdir, ptrn, tag, pos_dir, fcfg, send_term=0,
+                      update_term=0, echo=True, lines_on_start=0)
 
     tail.update_target(True)
     assert tail.may_send_newlines() == 100
 
-    tail = FileTailer(bdir, ptrn, tag, pos_dir, fluent_ip, fluent_port,
-                      send_term=0, update_term=0, echo=True, lines_on_start=10)
+    tail = FileTailer(bdir, ptrn, tag, pos_dir, fcfg, send_term=0,
+                      update_term=0, echo=True, lines_on_start=10)
 
     tail.update_target(True)
     assert tail.may_send_newlines() == 10
@@ -603,12 +671,12 @@ def test_tail_file_format(rmlogs):
 
     fmt = r'\s(?P<lvl>\S+):\s(?P<_json_>.+)'
     with pytest.raises(InvalidLogFormat):
-        FileTailer(bdir, "tailtest4_*-*-*.log", "wdfwd.tail4", pos_dir,
-            fluent_ip, fluent_port, echo=True, format=fmt)
+        FileTailer(bdir, "tailtest4_*-*-*.log", "wdfwd.tail4", pos_dir, fcfg,
+                   echo=True, format=fmt)
 
     fmt = r'(?P<dt_>\d+-\d+-\d+ \d+:\d+:\S+)\s(?P<lvl>\S+):\s(?P<_json_>.+)'
     tail = FileTailer(bdir, "tailtest4_*-*-*.log", "wdfwd.tail4", pos_dir,
-                      fluent_ip, fluent_port, echo=True, format=fmt)
+                      fcfg, echo=True, format=fmt)
     data="""2016-03-30 16:10:50.5503 INFO: {"dt_": "to-be-overwritten", "obj":[{"Delegate":{},"target0":{"returnObj":{"FirstItems":[{"ProductDisplaySeq":388}],"ProductDisplaySeq":389,"SecondItems":[{"ParentSeq":388,"ProductDisplaySeq":389},{"ParentSeq":388,"ProductDisplaySeq":461}],"ThirdItems":[],"Message":null,"Return":true,"ReturnCode":0,"TraceId":"6c8b7c6c-6c6a-4fcc-b879-72a64a4e57e5"},"parentSeq":0,"salesZone":421,"userSeq":0,"accountID":"","clientIp":"10.1.18.22"}}]}"""
     path = os.path.join(bdir, 'tailtest4_2016-03-30.log')
     with open(path, 'w') as f:
@@ -624,7 +692,7 @@ def test_tail_file_format(rmlogs):
 
     fmt = r'(?P<dt_>\d+-\d+-\d+ \d+:\d+:\S+)\s(?P<lvl>\S+):\s(?P<_text_>.+)'
     tail = FileTailer(bdir, "tailtest5_*-*-*.log", "wdfwd.tail4", pos_dir,
-                      fluent_ip, fluent_port, echo=True, format=fmt)
+                      fcfg, echo=True, format=fmt)
     data="""2016-03-30 16:10:50.5503 INFO: Plain Text Message"""
     path = os.path.join(bdir, 'tailtest5_2016-03-30.log')
     with open(path, 'w') as f:

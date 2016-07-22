@@ -6,9 +6,10 @@ import traceback
 from croniter import croniter
 
 from wdfwd.get_config import get_config
-from wdfwd.tail import FileTailer, TailThread, SEND_TERM, UPDATE_TERM
+from wdfwd.tail import FileTailer, TailThread, SEND_TERM, UPDATE_TERM,\
+    FluentCfg, KinesisCfg
 from wdfwd.util import ldebug, linfo, lerror, validate_format,\
-    validate_order_ptrn
+    validate_order_ptrn, supress_boto3_log
 from wdfwd.sync import sync_file
 from wdfwd.parser import create_parser
 
@@ -29,9 +30,10 @@ force_first_run = appc['service'].get('force_first_run', False)
 tail_threads = []
 fsender = None
 
-
 def start_tailing():
     ldebug("start_tailing-")
+    supress_boto3_log()
+
     if not tailc:
         ldebug("no tailing config. return")
         return
@@ -44,8 +46,8 @@ def start_tailing():
     lines_on_start = tailc.get('lines_on_start')
     max_between_data = tailc.get('max_between_data')
     afrom = tailc['from']
-    fluent = tailc['to'].get('fluent')
-    kinesis = tailc['to'].get('kinesis')
+    fl_cfg = tailc['to'].get('fluent')
+    kn_cfg = tailc['to'].get('kinesis')
 
     gformat = tailc.get('format')
     linfo("global log format: '{}'".format(gformat))
@@ -62,26 +64,23 @@ def start_tailing():
     if gorder_ptrn:
         validate_order_ptrn(ldebug, lerror, gorder_ptrn)
 
-    if not fluent and not kinesis:
+    ldebug("pos_dir {}".format(pos_dir))
+
+    # make stream cfg
+    if not fl_cfg and not kn_cfg:
         lerror("no fluent / kinesis server info. return")
         return
-    elif fluent:
-        # override cfg for test
-        fluent_ip = os.environ.get('WDFWD_TEST_FLUENT_IP', fluent[0])
-        fluent_port = int(os.environ.get('WDFWD_TEST_FLUENT_PORT', fluent[1]))
-        ldebug("pos_dir {}, fluent_ip {}, fluent_port {}".format(pos_dir,
-                                                                 fluent_ip,
-                                                                 fluent_port))
-    elif kinesis:
-        kinesis_access_key = kinesis.get('access_key')
-        kinesis_secret_key = kinesis.get('secret_key')
-        kinesis_stream_name = kinesis.get('stream_name')
-        kinesis_region = kinesis.get('region')
-        ldebug("pos_dir {}, kinesis_access_key {}, kinesis_secret_key {}, kinesis_stream_name {}, kinesis_region {}".format(pos_dir,
-                                                                                                                    kinesis_access_key,
-                                                                                                                    kinesis_secret_key,
-                                                                                                                    kinesis_stream_name,
-                                                                                                                    kinesis_region))
+    elif fl_cfg:
+        ip = fl_cfg[0]
+        port = int(fl_cfg[1])
+        scfg = FluentCfg(ip, port)
+        ldebug("fluent: ip {}, port {}".format(ip, port))
+    elif kn_cfg:
+        stream_name = kn_cfg.get('stream_name')
+        region = kn_cfg.get('region')
+        access_key = kn_cfg.get('access_key')
+        secret_key = kn_cfg.get('secret_key')
+        scfg = KinesisCfg(stream_name, region, access_key, secret_key)
 
     if len(afrom) == 0:
         ldebug("no source info. return")
@@ -134,27 +133,13 @@ def start_tailing():
                                                       pos_dir,
                                                       latest))
 
-            if fluent:
-                tailer = FileTailer(bdir, ptrn, tag, pos_dir,
-                                    fluent_ip, fluent_port,
-                                    send_term=send_term,
-                                    update_term=update_term, elatest=latest,
-                                    encoding=file_enc,
-                                    lines_on_start=lines_on_start,
-                                    max_between_data=max_between_data,
-                                    format=format, parser=parser, order_ptrn=order_ptrn)
-            elif kinesis:
-                tailer = FileTailer(bdir, ptrn, tag, pos_dir,
-                                    kaccess_key=kinesis_access_key,
-                                    ksecret_key=kinesis_secret_key,
-                                    kstream_name=kinesis_stream_name,
-                                    kregion=kinesis_region,
-                                    send_term=send_term,
-                                    update_term=update_term, elatest=latest,
-                                    encoding=file_enc,
-                                    lines_on_start=lines_on_start,
-                                    max_between_data=max_between_data,
-                                    format=format, parser=parser, order_ptrn=order_ptrn)
+            tailer = FileTailer(bdir, ptrn, tag, pos_dir, scfg,
+                                send_term=send_term, update_term=update_term,
+                                elatest=latest, encoding=file_enc,
+                                lines_on_start=lines_on_start,
+                                max_between_data=max_between_data,
+                                format=format, parser=parser,
+                                order_ptrn=order_ptrn)
 
             name = "tail{}".format(i+1)
             tailer.trd_name = name

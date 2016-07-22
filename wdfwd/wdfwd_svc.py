@@ -1,3 +1,6 @@
+import sys
+import traceback
+
 import win32service  # NOQA
 import win32serviceutil  # NOQA
 import win32event  # NOQA
@@ -5,15 +8,12 @@ import servicemanager  # NOQA
 
 from wdfwd import app
 from wdfwd.get_config import get_config
-from wdfwd import util
 from wdfwd.util import ldebug, lerror, lheader, init_global_fsender
 from wdfwd.const import SVC_SLEEP_SEC
-
 
 cfg = get_config()
 scfg = cfg['app']['service']
 lcfg = cfg['log']
-
 
 if 'fluent' in lcfg:
     fhost = lcfg['fluent'][0]
@@ -23,6 +23,7 @@ elif 'kinesis' in lcfg:
     kaccess_key = lcfg['kinesis']['access_key']
     ksecret_key = lcfg['kinesis']['secret_key']
     kregion = lcfg['kinesis']['region']
+
 
 class WdFwdService(win32serviceutil.ServiceFramework):
     _svc_name_ = scfg['name']
@@ -51,6 +52,8 @@ class WdFwdService(win32serviceutil.ServiceFramework):
             app.start_tailing()
         except Exception, e:
             lerror("app.start_tailing error {}".format(str(e)))
+            for l in traceback.format_exc().splitlines():
+                lerror(l)
 
         while True:
             app.run_scheduled()
