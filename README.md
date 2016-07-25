@@ -7,7 +7,7 @@ wdfwd는 [WzDat](https://github.com/haje01/wzdat)을 위해 만들어 졌으나,
 ## 특징
 
 - 윈도우 용 rsync를 통한 압축/차분(Differential) 로그 포워딩
-- [Fluentd](http://www.fluentd.org) 로의 실시간 로그 테일링
+- [Fluentd](http://www.fluentd.org) 또는 [AWS Kinesis](https://aws.amazon.com/ko/kinesis/) 로의 실시간 로그 테일링
 - 윈도우 서비스 방식으로 설치되어 리부팅 시 자동 시작
 - 다양한 형식의 로그를 포워딩
 - DB(SQLServer)에 저장된 로그 테이블을 덤프 후 포워딩
@@ -217,13 +217,12 @@ DB(= SQLServer)에 남고 있는 로그 테이블을 로컬 CSV 파일로 덤프
 
 `db` > `to_url` - CSV 파일이 전송될 URL이다. `rsync-user@myserver.net::rsync-backup/myprj/mysvr/dblog`형식으로 기입한다. 
 
-## Fluentd로 로그 테일링(Tailing) 
+## 실시간 로그 테일링(Tailing) 
 
-*이 기능은 아직 개발 중으로, 버그나 설정 파일 형식의 변경이 있을 수 있다.*
 
 테일링은 지정된 파일의 변경된 끝 부분 만을 네트워크를 통해 전송한다. 
 
-현재 테일링의 목적지는 Fluentd 서버이다. Fluentd를 사용하면 rsync를 사용할 때 보다 설정이 간단하고, 무엇보다 실시간으로 로그를 전송할 수 있다.이를 위해서 Fluentd가 설치된 로그 중계 용 서버가 필요하다.
+테일링을 사용하면 rsync를 사용할 때 보다 설정이 간단하고, 무엇보다 실시간으로 로그를 전송할 수 있다.테일링의 목적지는 Fluentd와 AWS Kinesis를 사용할 수 있다. 이를 위해서는 각각 Fluentd가 설치된 로그 중계 용 서버 또는 AWS Kinesis Stream이 필요하다.
 
 설정 파일은 `app`과 `log` 섹션은 거의 비슷하나, `tailing` 섹션이 추가되었다. 아래를 참고하자.
 
@@ -278,7 +277,7 @@ DB(= SQLServer)에 남고 있는 로그 테이블을 로컬 CSV 파일로 덤프
 
 `pattern` - 파일 이름의 패턴. [Unix 스타일의 경로명 패턴](https://docs.python.org/2/library/glob.html)을 받아 들인다.(`[`을 escape하기 위해 `[[]`을 사용하는 것에 주의)
 
-`tag` - Fluentd에서 참고할 태그
+`tag` - Fluentd/Kinesis 에서 참고할 태그
 
 #### to 
 
@@ -287,6 +286,18 @@ DB(= SQLServer)에 남고 있는 로그 테이블을 로컬 CSV 파일로 덤프
 ##### fluent
 
 Fluentd 서버로 보낸다. `[IP주소, 포트]` 형식을 따른다.
+
+##### kinesis
+
+Kinesis 스트림으로 보낸다. 다음과 같은 형식을 따른다.
+
+    kinesis:
+            access_key: # AWS Access Key Id
+            secret_key: # AWS Secret Access Key
+            stream_name: # AWS Kinesis Stream Name
+            region: # AWS Region ex) ap-northeast-2
+
+*Kinesis 스트림으로 보낼 때는 파이썬의 [aws_kinesis_agg](https://pypi.python.org/pypi/aws_kinesis_agg/1.0.0)모듈을 사용해서 Aggregation된 형태로 전송된다. 따라서 Kinesis Comsumer 쪽에서 Deaggregation 작업이 필요하다.*
 
 ## 복잡한 로그 파싱하기
 
