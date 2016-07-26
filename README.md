@@ -346,8 +346,6 @@ Kinesis 스트림으로 보낸다. 다음과 같은 형식을 따른다.
     --cfile_idx INTEGER  Tailing config file index.
     --help               Show this message and exit.
 
-그리고 
-
     > test parser --help
     Usage: test parser [OPTIONS] FILE_PATH
 
