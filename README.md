@@ -346,11 +346,13 @@ Kinesis 스트림으로 보낸다. 다음과 같은 형식을 따른다.
     --cfile_idx INTEGER  Tailing config file index.
     --help               Show this message and exit.
 
-`--cfg_path`로 wdfwd의 설정파일 경로를 지정하고, `--cfile_idx`로 tailing 대상 파일 패턴의 인덱스를 지정한다.
+`--cfg_path`로 wdfwd의 설정파일 경로를 지정하고, `--cfile_idx`로 tailing 대상 `file`의 인덱스를 지정한다.
 
 예를 들어 format 정규식을 테스트 하려면 다음과 같이 한다.
 
     > test format --cfg_path "C:\wdfwd\config.yml" --cfile_idx 0 "C:\logs\test.log"
+
+미리 환경변수 `WDFWD_CFG` 가 설정되어 있다면 `--cfg_path` 는 생략 가능하다.
 
 정상적으로 파싱이 되면 파싱된 결과를 출력하고, 실패하면 다음과 같이 메시지와 함께 실패한 행을 출력한다.
 	
