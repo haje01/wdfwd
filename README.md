@@ -346,7 +346,16 @@ Kinesis 스트림으로 보낸다. 다음과 같은 형식을 따른다.
     --cfile_idx INTEGER  Tailing config file index.
     --help               Show this message and exit.
 
-`--cfg_path`로 설정파일 경로를 지정하고, `--cfile_idx`로 `tailing` 아래 `file`의 인덱스를 지정한다.
+    > test parser --help
+    Usage: test parser [OPTIONS] FILE_PATH
+
+    Options:
+    --cfg_path TEXT      Forwarder config file path.
+    --cfile_idx INTEGER  Tailing config file index.
+    --help               Show this message and exit.
+
+
+공통적으로 `--cfg_path`로 설정파일 경로를 지정하고, `--cfile_idx`로 `tailing` 아래 `file`의 인덱스를 지정한다.
 
 예를 들어 format 정규식을 테스트 하려면 다음과 같이 한다.
 
