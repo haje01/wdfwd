@@ -332,9 +332,35 @@ Kinesis 스트림으로 보낸다. 다음과 같은 형식을 따른다.
         - '%{datetime} %{level} %{src_info} %{msg}'
         - '%{datetime} %{level} %{msg}'
 
+### 포맷 / 파서 테스트 하기
+
+함께 배포되는 `test.exe` 를 사용해 설정 파일 내 format 또는 parser를 쉽게 테스트 할 수 있다.
+
+사용 방법은 아래와 같다.
+
+    > test format --help
+    Usage: test format [OPTIONS] FILE_PATH
+
+    Options:
+    --cfg_path TEXT      Forwarder config file path.
+    --cfile_idx INTEGER  Tailing config file index.
+    --help               Show this message and exit.
+
+`--cfg_path`로 wdfwd의 설정파일 경로를 지정하고, `--cfile_idx`로 tailing 대상 파일 패턴의 인덱스를 지정한다.
+
+예를 들어 format 정규식을 테스트 하려면 다음과 같이 한다.
+
+    > test format --cfg_path "C:\wdfwd\config.yml" --cfile_idx 0 "C:\logs\test.log"
+
+정상적으로 파싱이 되면 파싱된 결과를 출력하고, 실패하면 다음과 같이 메시지와 함께 실패한 행을 출력한다.
+	
+    Parsing failed! : '16-05-25 00:25:14 1        6288176345792905223     6288276710588679525     1213
+7       leebossa        10.100.40.100   16778154        sound_LHS       1       2       54      36
+494     162080  12640   8368.656250     1510.743286     2882.867920     ""
+'
 ## 커스텀 파서 
 
-멀티 라인으로 구성되어 있는 로그를 파싱할 때는 커스텀 파서를 이용한다. 커스텀 파서는 `wdfwd/parser/custom.py`에 클래스로 구현되어야 한다. 아래와 같이 설정파일의 custom필드에 클래스 명을 기입하여 사용한다.
+멀티 라인으로 구성되어 있는 복잡한 로그를 파싱할 때는 커스텀 파서를 이용한다. 커스텀 파서는 `wdfwd/parser/custom.py`에 클래스로 구현되어야 한다. 아래와 같이 설정파일의 custom필드에 클래스 명을 기입하여 사용한다.
 
     parser:
         custom: FCS

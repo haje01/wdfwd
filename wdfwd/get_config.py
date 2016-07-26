@@ -24,6 +24,10 @@ def get_config(envvar='WDFWD_CFG'):
     assert envvar in os.environ
     path = os.environ[envvar]
     logging.info('Using environment variable cfg: %s', envvar)
+    return _get_config(path)
+
+
+def _get_config(path):
     logging.info("open '%s' for config", path)
     with open(path, 'r') as f:
         cfg = yaml.load(f)

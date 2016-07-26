@@ -314,11 +314,16 @@ def iter_kinesis_records(knc, shid, seqn):
 
 
 def query_aws_client(service, region, access_key, secret_key):
-    base_dir = os.path.dirname(__file__).split(os.path.sep)[:-2]
+    if ".zip" in __file__:
+        base_dir = os.path.dirname(__file__).split(os.path.sep)[:-2]
+    else:
+        base_dir = os.path.dirname(__file__).split(os.path.sep)
     base_dir = os.path.sep.join(base_dir)
-    cacert_path = os.path.join(base_dir, 'data', 'cacert.pem')
-    data_dir = os.path.join(base_dir, 'data')
-    print '-----------------------------'
+    if ".zip" in __file__:
+        data_dir = os.path.join(base_dir, 'data')
+    else:
+        data_dir = os.path.join(base_dir, 'botocore_data')
+    cacert_path = os.path.join(data_dir, 'cacert.pem')
     print(cacert_path, data_dir)
     session = boto3.session.Session()
     session._loader.search_paths.append(data_dir)

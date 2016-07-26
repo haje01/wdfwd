@@ -179,25 +179,25 @@ def test_tail_file_kinesis(rmlogs, ktail):
         assert 'ts_' in rec
 
 
-def test_tail_file_rotate(rmlogs, ktail):
+def test_tail_file_rotate(rmlogs, ftail):
     for i in range(1, 30):
-        path = os.path.join(ktail.bdir,
+        path = os.path.join(ftail.bdir,
                             'tailtest_2016-03-{:02d}.log'.format(i))
         with open(path, 'w') as f:
             f.write('{}\n'.format(i))
 
-    ktail.update_target()
-    assert os.path.basename(ktail.target_path) == 'tailtest_2016-03-29.log'
-    assert ktail.may_send_newlines() == 1
+    ftail.update_target()
+    assert os.path.basename(ftail.target_path) == 'tailtest_2016-03-29.log'
+    assert ftail.may_send_newlines() == 1
 
     # new file
-    path = os.path.join(ktail.bdir, 'tailtest_2016-03-30.log')
+    path = os.path.join(ftail.bdir, 'tailtest_2016-03-30.log')
     with open(path, 'w') as f:
         f.write('30\n')
 
-    ktail.update_target()
-    assert os.path.basename(ktail.target_path) == 'tailtest_2016-03-30.log'
-    assert ktail.may_send_newlines() == 1
+    ftail.update_target()
+    assert os.path.basename(ftail.target_path) == 'tailtest_2016-03-30.log'
+    assert ftail.may_send_newlines() == 1
 
 
 def test_tail_file_multi(rmlogs, ftail, ftail2):
@@ -501,6 +501,7 @@ def test_tail_file_elatest1(rmlogs):
     assert rotated
     ftail.update_target()
     assert ftail.target_path == pre_path2
+
 
 def test_tail_file_elatest2(rmlogs):
     """

@@ -40,6 +40,7 @@ target = Target(
 )
 
 setup(service=[target],
+      console=['test.py'],
       options={
           'py2exe': {
               'includes': includes,

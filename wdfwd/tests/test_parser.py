@@ -164,6 +164,7 @@ def test_parser_fcs():
     fcs.parse_line("  transaction_id : 8371")
     fcs.parse_line("  account_no : 1862710")
     fcs.parse_line("  authentication_key : D7665F56-29E2-4B80-BD8F-C5D37C3654CA")
+    assert fcs.buf["req-authentication_key"] == "D7665F56-29E2-4B80-BD8F-C5D37C3654CA"
     fcs.parse_line("  client_ip : 116.121.77.141")
     assert fcs.buf["req-client_ip"] == '116.121.77.141'
 
