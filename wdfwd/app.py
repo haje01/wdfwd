@@ -11,7 +11,7 @@ from wdfwd.tail import FileTailer, TailThread, SEND_TERM, UPDATE_TERM,\
 from wdfwd.util import ldebug, linfo, lerror, validate_format,\
     validate_order_ptrn, supress_boto3_log
 from wdfwd.sync import sync_file
-from wdfwd.parser import create_parser
+from wdfwd.parser import create_parser, merge_parser_cfg
 
 
 cfg = get_config()
@@ -54,10 +54,9 @@ def start_tailing():
     if gformat:
         validate_format(ldebug, lerror, gformat)
 
-    gparser = tailc.get('parser')
-    linfo("global log parser '{}'".format(gparser))
-    if gparser:
-        gparser = create_parser(gparser)
+    gpcfg = tailc.get('parser')
+    linfo("global log parser '{}'".format(gpcfg))
+    gparser = create_parser(gpcfg) if gpcfg else None
 
     gorder_ptrn = tailc.get('order_ptrn')
     ldebug("global order ptrn: '{}'".format(gorder_ptrn))
@@ -99,6 +98,8 @@ def start_tailing():
             order_ptrn = filec.get('order_ptrn')
             pcfg = filec.get('parser')
             if pcfg:
+                if gpcfg:
+                    pcfg = merge_parser_cfg(gpcfg, pcfg)
                 parser = create_parser(pcfg)
                 ldebug("file parser: '{}'".format(parser))
             else:

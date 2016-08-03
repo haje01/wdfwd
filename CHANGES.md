@@ -1,6 +1,7 @@
 0.1.2
 =====
 - Support tail to AWS Kineis stream
+- Provide parser/format tester
 
 0.1.1
 =====

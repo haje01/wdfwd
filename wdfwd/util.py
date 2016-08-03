@@ -4,7 +4,6 @@ import tempfile
 import time
 import re
 from subprocess import check_call as _check_call, CalledProcessError
-from base64 import b64decode
 
 import win32file
 import boto3
@@ -250,8 +249,8 @@ def validate_order_ptrn(ldebug, lerror, ptrn):
         raise InvalidOrderPtrn()
 
 
-def prepare_kinesis_test():
-    knc = boto3.client('kinesis')
+def prepare_kinesis_test(region):
+    knc = boto3.client('kinesis', region_name=region)
 
     while True:
         try:
@@ -275,6 +274,13 @@ def prepare_kinesis_test():
 
 
 def aws_lambda_dform(rec):
+    if type(rec) is list:
+        return [_aws_lambda_dform(r) for r in rec]
+    else:
+        return _aws_lambda_dform(rec)
+
+
+def _aws_lambda_dform(rec):
     return dict(
         kinesis=dict(
             partitionKey=rec['PartitionKey'],
@@ -287,7 +293,8 @@ def aws_lambda_dform(rec):
 
 
 def iter_kinesis_records(knc, shid, seqn):
-    from aws_kinesis_agg import deaggregator
+    from base64 import b64decode
+    from aws_kinesis_agg.deaggregator import deaggregate_records
 
     ret = knc.get_shard_iterator(
         StreamName=KN_TEST_STREAM,
@@ -297,17 +304,14 @@ def iter_kinesis_records(knc, shid, seqn):
     )
     assert 'ShardIterator' in ret
     shdit = ret['ShardIterator']
-    rcnt = 0
     while True:
         ret = knc.get_records(ShardIterator=shdit)
         if len(ret['Records']) == 0:
             break
         assert 'Records' in ret
-        records = ret['Records']
-        for _rec in records:
-            rec = aws_lambda_dform(_rec)
-            dret = deaggregator.deaggregate_records(rec)
-            data = b64decode(dret[0]['kinesis']['data'])
+        records = deaggregate_records(aws_lambda_dform(ret['Records']))
+        for rec in records:
+            data = b64decode(rec['kinesis']['data'])
             yield data
 
         shdit = ret['NextShardIterator']

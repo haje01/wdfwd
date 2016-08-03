@@ -7,6 +7,7 @@ import logging
 from StringIO import StringIO
 import traceback
 import json
+import uuid
 import msgpack
 from base64 import b64encode
 from collections import namedtuple
@@ -637,40 +638,45 @@ class FileTailer(object):
                 msgs[:] = []
 
     def _kinesis_put(self, msgs):
+        self.ldebug('_kinesis_put {} messages'.format(len(msgs)))
         self.kpk_cnt += 1  # round robin shards
-        pk = str(self.kpk_cnt)
-        pk, ehk, data = self._make_kinesis_agg(pk, msgs)
-        ret = self.kclient.put_record(
-            StreamName=self.kstream_name,
-            Data=b64encode(data),
-            PartitionKey=pk,
-            ExplicitHashKey=ehk
-        )
-        stat = ret['ResponseMetadata']['HTTPStatusCode']
-        shid = ret['ShardId']
-        seqn = ret['SequenceNumber']
-        self.ksent_seqn = seqn
-        self.ksent_shid = shid
-        if stat == 200:
-            self.linfo("Kinesis put success: ShardId: {}, SequenceNumber: "
-                       "{}".format(shid, seqn))
-        else:
-            self.error("Kineis put failed!: "
-                       "{}".format(ret['ResponseMetadata']))
+        for aggrec in self._iter_kinesis_aggrec(msgs):
+            pk, ehk, data = aggrec.get_contents()
+            ret = self.kclient.put_record(
+                StreamName=self.kstream_name,
+                Data=data,
+                PartitionKey=pk,
+                ExplicitHashKey=ehk
+            )
+            stat = ret['ResponseMetadata']['HTTPStatusCode']
+            shid = ret['ShardId']
+            seqn = ret['SequenceNumber']
+            self.ksent_seqn = seqn
+            self.ksent_shid = shid
+            if stat == 200:
+                self.linfo("Kinesis put success: ShardId: {}, SequenceNumber:"
+                           " {}".format(shid, seqn))
+            else:
+                self.error("Kineis put failed!: "
+                        "{}".format(ret['ResponseMetadata']))
 
-    def _make_kinesis_agg(self, pk, msgs):
+    def _iter_kinesis_aggrec(self, msgs):
         for msg in msgs:
             data = {'tag_': self.tag + '.data', 'ts_': msg[0]}
             if type(msg[1]) == dict:
                 data.update(msg[1])
             else:
                 data['value_'] = msg[1]
-            res = self.kagg.add_user_record(pk, str(data))
+
+            pk = str(uuid.uuid4())
+            ehk = str(uuid.uuid4().int)
+            res = self.kagg.add_user_record(pk, str(data), ehk)
+            # if payload fits max send size, send it
             if res:
-                self.lerror(1, "unencoded data size fit 1MB, possible over sized"
-                            " data after b64encode. reduce BULK_SEND_SIZE!")
-        res = self.kagg.clear_and_get()
-        return res.get_contents()
+                yield self.kagg.clear_and_get()
+
+        # send remain payload
+        yield self.kagg.clear_and_get()
 
     def _may_send_newlines(self, lines, rbytes=None, scnt=0, file_path=None):
         self.ldebug("_may_send_newlines", "sending {} bytes..".format(rbytes))

@@ -185,8 +185,17 @@ def create_parser(cfg):
 
     ps = Parser()
     tokens = cfg['tokens']
-    for k, v in tokens.iteritems():
-        ps.Token(k, v)
+    unresolved = True
+    while unresolved:
+        unresolved = False
+        for k, v in tokens.iteritems():
+            try:
+                ps.Token(k, v)
+            except KeyError:
+                unresolved = True
+            except ValueError, e:
+                if 'is already exist' not in str(e):
+                    raise
 
     if 'groups' in cfg:
         groups = cfg['groups']
@@ -198,3 +207,23 @@ def create_parser(cfg):
         ps.Format(fmt)
 
     return ps
+
+
+def merge_parser_cfg(gparser_cfg, lparser_cfg):
+    """
+    merge global parser cfg into local parser cfg
+    """
+    if 'tokens' in gparser_cfg:
+        for k, v in gparser_cfg['tokens'].iteritems():
+            if k not in lparser_cfg:
+                if 'tokens' not in lparser_cfg:
+                    lparser_cfg['tokens'] = {}
+                lparser_cfg['tokens'][k] = v
+
+    if 'groups' in gparser_cfg:
+        for k, v in gparser_cfg['groups'].iteritems():
+            if k not in lparser_cfg:
+                if 'groups' not in lparser_cfg:
+                    lparser_cfg['groups'] = {}
+                lparser_cfg['groups'][k] = v
+    return lparser_cfg

@@ -5,6 +5,7 @@ sys.path.append('.')
 import click
 
 from wdfwd.get_config import _get_config
+from wdfwd.parser import merge_parser_cfg
 
 
 CONFIG_NAME = 'WDFWD_CFG'
@@ -27,19 +28,30 @@ def parser(file_path, cfg_path, cfile_idx):
     cfg = _get_config(cfg_path)
     assert 'tailing'
     assert cfg['tailing']['from']
+    if 'parser' in cfg['tailing']:
+        gpcfg = cfg['tailing']['parser']
     files = cfg['tailing']['from']
     afile = files[cfile_idx]
-    _parser = afile['file']['parser']
+    pcfg = afile['file']['parser']
+    if gpcfg:
+        pcfg = merge_parser_cfg(gpcfg, pcfg)
 
     from wdfwd import parser as ps
-    parser = ps.create_parser(_parser)
+    parser = ps.create_parser(pcfg)
 
+    n_succ = 0
     with open(file_path, 'rt') as f:
         for line in f:
             parsed = parser.parse_line(line)
             if not parsed:
                 print "Parsing failed! : '{}'".format(line)
-                raise
+                sys.exit(-1)
+            else:
+                print parser.parsed
+                n_succ += 1
+                if n_succ > 10:
+                    print 'Printed only first 10 results.'
+                    break
 
 
 @cli.command()
