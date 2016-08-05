@@ -341,3 +341,22 @@ def supress_boto3_log():
     logging.getLogger('boto3').setLevel(logging.WARNING)
     logging.getLogger('botocore').setLevel(logging.WARNING)
     logging.getLogger('nose').setLevel(logging.WARNING)
+
+
+def ravel_dict(data, sep='_'):
+    ret = {}
+    _ravel_dict(ret, data, sep, None, True)
+    return ret
+
+
+def _ravel_dict(results, data, sep, _prefix, root):
+    if _prefix:
+        prefix = '{}{}'.format(_prefix, sep)
+    else:
+        prefix = ''
+    for k, v in data.iteritems():
+        key = '{}{}'.format(prefix, k)
+        if type(v) is dict:
+            _ravel_dict(results, v, sep, key, False)
+        else:
+            results[key] = v

@@ -1,5 +1,7 @@
 import re
+from StringIO import StringIO
 
+import yaml
 import pytest
 
 from wdfwd import parser as ps
@@ -113,8 +115,6 @@ parser:
         - '%{datetime} %{level} %{src_info} %{msg}'
         - '%{datetime} %{level} %{msg}'
     """
-    import yaml
-    from StringIO import StringIO
     cfg = yaml.load(StringIO(cfg))
     psr = ps.create_parser(cfg['parser'])
     assert psr.parse_line('2016-06-28 12:33:21 DEBUG foo.py:37 Init success')
@@ -255,3 +255,34 @@ def test_parser_mocca():
 
     assert moc.parse_line("==== 2016/06/01 02:51:20 (+0900) ====")
     assert moc.completed == 2
+
+
+def test_parser_transform():
+    cfg = """
+parser:
+    tokens:
+        date: '\d{4}-\d{2}-\d{2}'
+        time: '\d{2}:\d{2}:\d{2}.\d{4}'
+        dt_: '%{date} %{time}'
+        request_data: ['{.*}', 'prefix(lower(ravel(json(_))), "req")']
+        exception: '.*'
+    groups:
+        debug: '%{dt_},%{request_data}'
+    formats:
+        - '%{debug}'
+    """
+    cfg = yaml.load(StringIO(cfg))
+    psr = ps.create_parser(cfg['parser'])
+    tok = psr.objects['%{request_data}']
+    ok = tok.parse('{"PostData" : {"val": 1, "lval": [1,2,3]},"GetData" : {}}')
+    assert ok
+    assert 'request_data' not in tok.taken
+    assert "req-postdata_val" in tok.taken
+    assert "req-postdata_lval" in tok.taken
+    assert "req-getdata" not in tok.taken
+
+    assert psr.objects['%{request_data}'].tfunc_lmap
+    psr.parse_line('2016-07-25 00:00:00.7083,{"PostData" : {"val": 1, "lval": [1,2,3]},"GetData" : {}}')
+    assert "req-postdata_val" in psr.parsed
+    assert "req-postdata_lval" in psr.parsed
+    assert "req-getdata" not in psr.parsed

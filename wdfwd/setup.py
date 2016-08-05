@@ -40,7 +40,7 @@ target = Target(
 )
 
 setup(service=[target],
-      console=['test.py'],
+      console=['cfgtest.py'],
       options={
           'py2exe': {
               'includes': includes,

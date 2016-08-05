@@ -1,6 +1,8 @@
 import re
+import inspect
+import json
 
-from wdfwd.util import ldebug
+from wdfwd.util import ldebug, ravel_dict
 
 
 tk_ptrn = re.compile(r'(%{[^}]+})')
@@ -38,12 +40,52 @@ class RegexObj(CtxNamed):
         self.regex = regex
 
 
+class Transforms():
+    @staticmethod
+    def json(_):
+        return json.loads(_)
+
+    @staticmethod
+    def ravel(_, sep='_'):
+        return ravel_dict(_, sep)
+
+    @staticmethod
+    def prefix(_, prefix, psep='-'):
+        ret = {}
+        for k, v in _.iteritems():
+            key = "{}{}{}".format(prefix, psep, k)
+            ret[key] = v
+        return ret
+
+    @staticmethod
+    def lower(_):
+        ret = {}
+        for k, v in _.iteritems():
+            ret[k.lower()] = v
+        return ret
+
+    @staticmethod
+    def upper(_):
+        ret = {}
+        for k, v in _.iteritems():
+            ret[k.upper()] = v
+        return ret
+
+
 class Token(RegexObj):
-    def __init__(self, psr, name, regex):
-        self._regex = regex
+    def __init__(self, psr, name, _regex, encoding=None):
+        self._regex = _regex
+        self.encoding = encoding
         # resolve refs
-        if '%{' in regex:
-            tkns = tk_ptrn.findall(regex)
+        if hasattr(type(_regex), '__iter__'):
+            assert(len(_regex) == 2)
+            self.tfunc_s = _regex[1]
+            self.build_tfunc_map()
+            psr.register_tfunc_tokens(name, self)
+            _regex = _regex[0]
+
+        if '%{' in _regex:
+            tkns = tk_ptrn.findall(_regex)
             for tkn in tkns:
                 rtkn = psr.objects[tkn]
                 rtkn_rx = rtkn._regex
@@ -51,13 +93,18 @@ class Token(RegexObj):
                 if match:
                     s, e = match.span()
                     rtkn_rx = rtkn_rx[:s] + match.groups()[0] + rtkn_rx[e:]
-                regex = regex.replace(tkn, rtkn_rx)
+                _regex = _regex.replace(tkn, rtkn_rx)
 
-        if '%(' not in regex:
-            regex = r'(?P<{}>{})'.format(name, regex)
+        if '%(' not in _regex:
+            regex = r'(?P<{}>{})'.format(name, _regex)
         else:
-            regex = self.resolv_plchld(regex, name)
+            regex = self.resolv_plchld(_regex, name)
         super(Token, self).__init__(psr, name, regex)
+
+    def build_tfunc_map(self):
+        self.tfunc_gmap = {'__builtins__': None}
+        self.tfunc_lmap = dict(inspect.getmembers(Transforms,
+                                                  predicate=inspect.isfunction))
 
     def resolv_plchld(self, regex, name):
         match = tkph_ptrn.search(regex)
@@ -72,10 +119,32 @@ class Token(RegexObj):
         match = self.ptrn.match(msg)
         if match:
             self.taken = match.groupdict()
+            if self.tfunc_s:
+                apply_tfunc(self.taken, self, self.name)
             return True
         else:
             self.taken = None
             return False
+
+
+def apply_tfunc(taken, token, tname):
+    """
+        apply token transform, save into target
+    """
+    tvar = taken[tname]
+    if token.encoding:
+        tvar = tvar.decode(token.encoding)
+
+    token.tfunc_lmap['_'] = tvar
+    ret = eval(token.tfunc_s, token.tfunc_gmap, token.tfunc_lmap)
+
+    if type(ret) is dict:
+        del taken[tname]
+        taken.update(ret)
+    else:
+        taken[tname] = ret
+
+    return ret
 
 
 class Group(RegexObj):
@@ -126,6 +195,9 @@ class Format(object):
         match = self.ptrn.match(msg)
         if match:
             self.taken = match.groupdict()
+            for toknm, token in self.psr.tfunc_tokens.iteritems():
+                if toknm in self.taken:
+                    apply_tfunc(self.taken, token, toknm)
             return True
         else:
             self.taken = None
@@ -138,9 +210,10 @@ class Parser(object):
         self.formats = []
         self.parsed = {}
         self.completed = 0
+        self.tfunc_tokens = {}
 
-    def Token(self, name, regex):
-        token = Token(self, name, regex)
+    def Token(self, name, regex, encoding=None):
+        token = Token(self, name, regex, encoding)
         return token
 
     def Group(self, name, regex):
@@ -151,6 +224,9 @@ class Parser(object):
 
     def Format(self, regex):
         return Format(self, regex)
+
+    def register_tfunc_tokens(self, toknm, token):
+        self.tfunc_tokens[toknm] = token
 
     def _expand(self, regex):
         while True:
@@ -176,12 +252,12 @@ class Parser(object):
         return False
 
 
-def create_parser(cfg):
+def create_parser(cfg, encoding=None):
     ldebug("create_parser {}".format(cfg))
     if 'custom' in cfg:
         ldebug("custom parser '{}'".format(cfg['custom']))
         from wdfwd.parser import custom
-        return custom.create_parser(cfg['custom'])
+        return custom.create_parser(cfg['custom'], encoding)
 
     ps = Parser()
     tokens = cfg['tokens']
@@ -190,7 +266,7 @@ def create_parser(cfg):
         unresolved = False
         for k, v in tokens.iteritems():
             try:
-                ps.Token(k, v)
+                ps.Token(k, v, encoding=encoding)
             except KeyError:
                 unresolved = True
             except ValueError, e:

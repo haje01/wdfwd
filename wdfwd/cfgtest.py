@@ -26,18 +26,22 @@ def parser(file_path, cfg_path, cfile_idx):
         cfg_path = os.environ[CONFIG_NAME]
 
     cfg = _get_config(cfg_path)
-    assert 'tailing'
-    assert cfg['tailing']['from']
-    if 'parser' in cfg['tailing']:
-        gpcfg = cfg['tailing']['parser']
-    files = cfg['tailing']['from']
+    assert 'tailing' in cfg
+    ctail = cfg['tailing']
+    assert ctail['from']
+    if 'file_encoding' in ctail:
+        encoding = ctail['file_encoding']
+
+    if 'parser' in ctail:
+        gpcfg = ctail['parser']
+    files = ctail['from']
     afile = files[cfile_idx]
     pcfg = afile['file']['parser']
     if gpcfg:
         pcfg = merge_parser_cfg(gpcfg, pcfg)
 
     from wdfwd import parser as ps
-    parser = ps.create_parser(pcfg)
+    parser = ps.create_parser(pcfg, encoding)
 
     n_succ = 0
     with open(file_path, 'rt') as f:
