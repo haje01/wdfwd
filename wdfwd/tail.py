@@ -1,4 +1,4 @@
-import os
+mport os
 import glob
 import time
 import threading
@@ -22,15 +22,15 @@ from wdfwd.util import OpenNoLock, get_fileid, escape_path, validate_format as\
     _validate_format, validate_order_ptrn as _validate_order_ptrn,\
     query_aws_client
 
-MAX_READ_BUF = 1000 * 1000
+MAX_READ_BUF = 1024 * 1024
 MAX_SEND_RETRY = 5
 SEND_TERM = 1       # 1 second
 UPDATE_TERM = 5     # 5 seconds
-MAX_BETWEEN_DATA = 1000 * 1000
+MAX_BETWEEN_DATA = 1024 * 1024
 FMT_NO_BODY = 0
 FMT_JSON_BODY = 1
 FMT_TEXT_BODY = 2
-BULK_SEND_SIZE = 100
+BULK_SEND_SIZE = 200
 
 FluentCfg = namedtuple('FluentCfg', ['host', 'port'])
 KinesisCfg = namedtuple('KinesisCfg', ['stream_name', 'region', 'access_key', 'secret_key'])
@@ -69,11 +69,17 @@ class TailThread(threading.Thread):
         self.linfo("start run")
         self.tailer.update_target(True)
 
+        sltime = 1
         while True:
             try:
-                time.sleep(1)
+                time.sleep(sltime)
 
+                st = time.time()
+                self.linfo("TAIL START: sltime {}".format(sltime))
                 self.tailer.tmain()
+                elapsed = time.time() - st
+                self.linfo("TAIL END IN {}".format(elapsed))
+                sltime = 0 if elapsed > 1 else 1
 
                 if self._exit:
                     break
@@ -141,13 +147,13 @@ def _log(tail, level, tabfunc, _msg):
             tail.fsender.emit_with_time("{}".format(level), ts, {"message": msg})
         except Exception, e:
             logging.warning("_log", "send fail '{}'".format(e))
-    elif tail.kclient:
-        data = dict(ts_=ts, level_=level, message=msg)
-        ret = tail.kclient.put_record(
-            StreamName=tail.kstream_name,
-            Data=b64encode(str(data)),
-            PartitionKey="0"
-        )
+    #elif tail.kclient:
+        #data = dict(ts_=ts, level_=level, message=msg)
+        #ret = tail.kclient.put_record(
+            #StreamName=tail.kstream_name,
+            #Data=b64encode(str(data)),
+            #PartitionKey="0"
+        #)
 
 
 class FileTailer(object):
@@ -505,7 +511,7 @@ class FileTailer(object):
         return msg
 
     def convert_msg(self, msg):
-        self.linfo("convert_msg")
+        self.ldebug("convert_msg")
         if self.encoding:
             msg = msg.decode(self.encoding).encode('utf8')
 
@@ -522,22 +528,16 @@ class FileTailer(object):
 
     def _read_target_to_end(self, fh):
         self.raise_if_notarget()
-        lines = []
-        rbytes = 0
-        while True:
-            res, _lines = win32file.ReadFile(fh, MAX_READ_BUF, None)
-            nbyte = len(_lines)
-            if res != 0:
-                self.lerror(1, "ReadFile Error! {}".format(res))
-                break
-            if nbyte == MAX_READ_BUF:
-                self.lwarning(1, "Read Buffer Full!")
 
-            rbytes += nbyte
-            lines.append(_lines)
-            if nbyte < MAX_READ_BUF:
-                break
-        return ''.join(lines), rbytes
+        res, lines = win32file.ReadFile(fh, MAX_READ_BUF, None)
+        nbyte = len(lines)
+        if res != 0:
+            self.lerror(1, "ReadFile Error! {}".format(res))
+            return '', 0
+        if nbyte == MAX_READ_BUF:
+            self.lwarning(1, "Read Buffer Full! Possibly corrupted last line.")
+
+        return lines, nbyte
 
     def get_elatest_info(self):
         self.linfo("get_elatst_info")
@@ -625,23 +625,23 @@ class FileTailer(object):
         self.ldebug("_send_newline {}".format(msg))
         ts = int(time.time())
         self.may_echo(ts, msg)
-        if not BULK_SEND_SIZE:
-            self.fsender.emit_with_time("data", ts, msg)
-        else:
-            msgs.append((ts, msg))
-            if len(msgs) >= BULK_SEND_SIZE:
-                if self.fsender:
-                    bytes_ = self._make_fluent_bulk(msgs)
-                    self.fsender._send(bytes_)
-                elif self.kclient:
-                    self._kinesis_put(msgs)
-                msgs[:] = []
+
+        msgs.append((ts, msg))
+        if len(msgs) >= BULK_SEND_SIZE:
+            if self.fsender:
+                bytes_ = self._make_fluent_bulk(msgs)
+                self.fsender._send(bytes_)
+            elif self.kclient:
+                self._kinesis_put(msgs)
+            msgs[:] = []
 
     def _kinesis_put(self, msgs):
-        self.ldebug('_kinesis_put {} messages'.format(len(msgs)))
+        self.linfo('_kinesis_put {} messages'.format(len(msgs)))
         self.kpk_cnt += 1  # round robin shards
-        for aggrec in self._iter_kinesis_aggrec(msgs):
-            pk, ehk, data = aggrec.get_contents()
+        for aggd in self._iter_kinesis_aggrec(msgs):
+            pk, ehk, data = aggd.get_contents()
+            self.linfo("  kinesis aggregated put_record: {} bytes".format(len(data)))
+            st = time.time()
             ret = self.kclient.put_record(
                 StreamName=self.kstream_name,
                 Data=data,
@@ -653,12 +653,13 @@ class FileTailer(object):
             seqn = ret['SequenceNumber']
             self.ksent_seqn = seqn
             self.ksent_shid = shid
+            elp = time.time() - st
             if stat == 200:
-                self.linfo("Kinesis put success: ShardId: {}, SequenceNumber:"
-                           " {}".format(shid, seqn))
+                self.linfo("Kinesis put success in {}: ShardId: {}, "
+                            "SequenceNumber: {}".format(elp, shid, seqn))
             else:
-                self.error("Kineis put failed!: "
-                        "{}".format(ret['ResponseMetadata']))
+                self.error("Kineis put failed in {}!: "
+                        "{}".format(elp, ret['ResponseMetadata']))
 
     def _iter_kinesis_aggrec(self, msgs):
         for msg in msgs:
@@ -669,8 +670,7 @@ class FileTailer(object):
                 data['value_'] = msg[1]
 
             pk = str(uuid.uuid4())
-            ehk = str(uuid.uuid4().int)
-            res = self.kagg.add_user_record(pk, str(data), ehk)
+            res = self.kagg.add_user_record(pk, str(data))
             # if payload fits max send size, send it
             if res:
                 yield self.kagg.clear_and_get()
@@ -694,7 +694,7 @@ class FileTailer(object):
                 scnt += 1
 
             # send remain bulk msgs
-            if BULK_SEND_SIZE and len(msgs) > 0:
+            if len(msgs) > 0:
                 if self.fsender:
                     bytes_ = self._make_fluent_bulk(msgs)
                     self.fsender._send(bytes_)

@@ -328,9 +328,10 @@ def query_aws_client(service, region, access_key, secret_key):
     else:
         data_dir = os.path.join(base_dir, 'botocore_data')
     cacert_path = os.path.join(data_dir, 'cacert.pem')
-    print(cacert_path, data_dir)
+    # print(cacert_path, data_dir)
     session = boto3.session.Session()
     session._loader.search_paths.append(data_dir)
+
     knc = session.client(service, use_ssl=True, verify=cacert_path,
                          region_name=region, aws_access_key_id=access_key,
                          aws_secret_access_key=secret_key)

@@ -6,16 +6,17 @@ import json
 from wdfwd import parser as ps
 
 
-def create_parser(cfg):
+def create_parser(cfg, encoding):
     if cfg == 'FCS':
-        return FCS()
+        return FCS(encoding)
 
 
 class CustomParser(ps.Parser):
-    def __init__(self):
+    def __init__(self, encoding):
         super(CustomParser, self).__init__()
         self.buf = {}
         self.file_path = None
+        self.encoding = encoding
 
     def send_reset(self):
         if len(self.buf) > 0:
@@ -31,9 +32,9 @@ class CustomParser(ps.Parser):
 
 
 class FCS(CustomParser):
-    def __init__(self):
+    def __init__(self, encoding=None):
         logging.debug("init FCS cparser")
-        super(FCS, self).__init__()
+        super(FCS, self).__init__(encoding)
 
         self.Token("time", r'\d{2}:\d{2}:\d{2}\.\d+')
         self.Token("level", r'[IWEF]')
@@ -100,8 +101,8 @@ class FCS(CustomParser):
 
 
 class Mocca(CustomParser):
-    def __init__(self):
-        super(Mocca, self).__init__()
+    def __init__(self, encoding=None):
+        super(Mocca, self).__init__(encoding)
 
         self.Token('date', r'\d{4}/\d{2}/\d{2}')
         self.Token('time', r'\d{2}:\d{2}:\d{2}')

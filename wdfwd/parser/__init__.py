@@ -76,6 +76,7 @@ class Token(RegexObj):
     def __init__(self, psr, name, _regex, encoding=None):
         self._regex = _regex
         self.encoding = encoding
+
         # resolve refs
         if hasattr(type(_regex), '__iter__'):
             assert(len(_regex) == 2)
@@ -83,6 +84,8 @@ class Token(RegexObj):
             self.build_tfunc_map()
             psr.register_tfunc_tokens(name, self)
             _regex = _regex[0]
+        else:
+            self.tfunc_s = None
 
         if '%{' in _regex:
             tkns = tk_ptrn.findall(_regex)

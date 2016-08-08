@@ -127,11 +127,13 @@ def test_kinesis_bulk(knc):
 def test_kinesis_agg(knc):
 
     def put_record(knc, res, seq):
+        st = time.time()
         pk, ehk, data = res.get_contents()
         ret = knc.put_record(StreamName=KN_TEST_STREAM,
                                 Data=data,
                                 PartitionKey=pk,
                                 ExplicitHashKey=ehk)
+        print "put_record done in {} for {}".format(elp, size)
 
         assert 'ShardId' in ret
         assert ret['ResponseMetadata']['HTTPStatusCode'] == 200
