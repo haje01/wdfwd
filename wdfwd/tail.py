@@ -1,4 +1,4 @@
-mport os
+import os
 import glob
 import time
 import threading
@@ -9,13 +9,11 @@ import traceback
 import json
 import uuid
 import msgpack
-from base64 import b64encode
 from collections import namedtuple
 
 import win32file
 import pywintypes
 from fluent.sender import FluentSender, MAX_SEND_FAIL
-import boto3
 from aws_kinesis_agg import aggregator
 
 from wdfwd.util import OpenNoLock, get_fileid, escape_path, validate_format as\
@@ -147,13 +145,6 @@ def _log(tail, level, tabfunc, _msg):
             tail.fsender.emit_with_time("{}".format(level), ts, {"message": msg})
         except Exception, e:
             logging.warning("_log", "send fail '{}'".format(e))
-    #elif tail.kclient:
-        #data = dict(ts_=ts, level_=level, message=msg)
-        #ret = tail.kclient.put_record(
-            #StreamName=tail.kstream_name,
-            #Data=b64encode(str(data)),
-            #PartitionKey="0"
-        #)
 
 
 class FileTailer(object):
@@ -805,6 +796,9 @@ class FileTailer(object):
         self.linfo(1, "_save_sent_pos for {} - {}".format(tpath, pos))
         tname = escape_path(tpath)
         path = os.path.join(self.pdir, tname + '.pos')
-        with open(path, 'w') as f:
-            f.write("{}\n".format(pos))
+        try:
+            with open(path, 'w') as f:
+                f.write("{}\n".format(pos))
+        except Exception, e:
+            self.lerror("Fail to write pos file: {} {}".format(e, path))
         self.cache_sent_pos[tpath] = pos

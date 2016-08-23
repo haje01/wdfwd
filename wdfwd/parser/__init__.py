@@ -34,9 +34,10 @@ class CtxNamed(CtxChild):
 
 
 class RegexObj(CtxNamed):
-    def __init__(self, psr, name, regex):
+    def __init__(self, psr, name, regex, encoding):
         self.ptrn = re.compile(regex)
         super(RegexObj, self).__init__(psr, name)
+        self.encoding = encoding
         self.regex = regex
 
 
@@ -75,7 +76,6 @@ class Transforms():
 class Token(RegexObj):
     def __init__(self, psr, name, _regex, encoding=None):
         self._regex = _regex
-        self.encoding = encoding
 
         # resolve refs
         if hasattr(type(_regex), '__iter__'):
@@ -102,12 +102,12 @@ class Token(RegexObj):
             regex = r'(?P<{}>{})'.format(name, _regex)
         else:
             regex = self.resolv_plchld(_regex, name)
-        super(Token, self).__init__(psr, name, regex)
+        super(Token, self).__init__(psr, name, regex, encoding)
 
     def build_tfunc_map(self):
         self.tfunc_gmap = {'__builtins__': None}
-        self.tfunc_lmap = dict(inspect.getmembers(Transforms,
-                                                  predicate=inspect.isfunction))
+        self.tfunc_lmap = dict(
+            inspect.getmembers(Transforms, predicate=inspect.isfunction))
 
     def resolv_plchld(self, regex, name):
         match = tkph_ptrn.search(regex)
@@ -118,7 +118,10 @@ class Token(RegexObj):
             regex = regex[:b] + rx + regex[e:]
         return regex
 
-    def parse(self, msg):
+    def parse(self, msg, decoded=False):
+        if not decoded and self.encoding:
+            msg = msg.decode(self.encoding)
+
         match = self.ptrn.match(msg)
         if match:
             self.taken = match.groupdict()
@@ -134,10 +137,8 @@ def apply_tfunc(taken, token, tname):
     """
         apply token transform, save into target
     """
+    ldebug("apply_tfunc")
     tvar = taken[tname]
-    if token.encoding:
-        tvar = tvar.decode(token.encoding)
-
     token.tfunc_lmap['_'] = tvar
     ret = eval(token.tfunc_s, token.tfunc_gmap, token.tfunc_lmap)
 
@@ -151,11 +152,14 @@ def apply_tfunc(taken, token, tname):
 
 
 class Group(RegexObj):
-    def __init__(self, psr, name, regex):
+    def __init__(self, psr, name, regex, encoding):
         regex = psr._expand(regex)
-        super(Group, self).__init__(psr, name, regex)
+        super(Group, self).__init__(psr, name, regex, encoding)
 
-    def parse(self, msg):
+    def parse(self, msg, decoded=False):
+        if not decoded and self.encoding:
+            msg = msg.decode(self.encoding)
+
         match = self.ptrn.match(msg)
         if match:
             self.taken = match.groupdict()
@@ -166,13 +170,17 @@ class Group(RegexObj):
 
 
 class KeyValue(object):
-    def __init__(self, psr, regex):
+    def __init__(self, psr, regex, encoding=None):
         self.psr = psr
         regex = psr._expand(regex)
         self.ptrn = re.compile(regex)
         self.regex = regex
+        self.encoding = encoding
 
-    def parse(self, msg, prefix=None):
+    def parse(self, msg, prefix=None, decoded=False):
+        if not decoded and self.encoding:
+            msg = msg.decode(self.encoding)
+
         rd = self.ptrn.findall(msg)
         if rd:
             if not prefix:
@@ -187,14 +195,18 @@ class KeyValue(object):
 
 
 class Format(object):
-    def __init__(self, psr, regex):
+    def __init__(self, psr, regex, encoding):
         self.psr = psr
         regex = psr._expand(regex)
         self.ptrn = re.compile(regex)
         self.regex = regex
+        self.encoding = encoding
         psr.formats.append(self)
 
-    def parse(self, msg):
+    def parse(self, msg, decoded=False):
+        if not decoded and self.encoding:
+            msg = msg.decode(self.encoding)
+
         match = self.ptrn.match(msg)
         if match:
             self.taken = match.groupdict()
@@ -208,25 +220,30 @@ class Format(object):
 
 
 class Parser(object):
-    def __init__(self):
+    def __init__(self, encoding=None):
         self.objects = {}
         self.formats = []
         self.parsed = {}
         self.completed = 0
         self.tfunc_tokens = {}
+        self.file_path = None
+        self.encoding = encoding
+
+    def flush(self):
+        pass
 
     def Token(self, name, regex, encoding=None):
-        token = Token(self, name, regex, encoding)
+        token = Token(self, name, regex, encoding or self.encoding)
         return token
 
-    def Group(self, name, regex):
-        return Group(self, name, regex)
+    def Group(self, name, regex, encoding=None):
+        return Group(self, name, regex, encoding or self.encoding)
 
-    def KeyValue(self, regex):
-        return KeyValue(self, regex)
+    def KeyValue(self, regex, encoding=None):
+        return KeyValue(self, regex, encoding)
 
-    def Format(self, regex):
-        return Format(self, regex)
+    def Format(self, regex, encoding=None):
+        return Format(self, regex, encoding or self.encoding)
 
     def register_tfunc_tokens(self, toknm, token):
         self.tfunc_tokens[toknm] = token
@@ -245,8 +262,12 @@ class Parser(object):
         return regex
 
     def parse_line(self, line):
+        ldebug("parse_line")
+        if self.encoding:
+            line = line.decode(self.encoding)
+
         for fmt in self.formats:
-            if fmt.parse(line):
+            if fmt.parse(line, True):
                 self.parsed = fmt.taken
                 self.completed += 1
                 return True
@@ -254,18 +275,23 @@ class Parser(object):
         self.parsed = None
         return False
 
+    def set_file_path(self, file_path):
+        self.file_path = file_path
+
 
 def create_parser(cfg, encoding=None):
     ldebug("create_parser {}".format(cfg))
     if 'custom' in cfg:
         ldebug("custom parser '{}'".format(cfg['custom']))
         from wdfwd.parser import custom
-        return custom.create_parser(cfg['custom'], encoding)
+        cuspar = custom.create_parser(cfg['custom'], encoding)
+        ldebug("custom parser created '{}'".format(cuspar))
+        return cuspar
 
     ps = Parser()
-    tokens = cfg['tokens']
+    tokens = cfg.get('tokens')
     unresolved = True
-    while unresolved:
+    while unresolved and tokens:
         unresolved = False
         for k, v in tokens.iteritems():
             try:
@@ -278,12 +304,15 @@ def create_parser(cfg, encoding=None):
 
     if 'groups' in cfg:
         groups = cfg['groups']
-        for k, v in groups.iteritems():
-            ps.Group(k, v)
+        if groups:
+            for k, v in groups.iteritems():
+                ps.Group(k, v)
 
-    formats = cfg['formats']
-    for fmt in formats:
-        ps.Format(fmt)
+    if 'formats' in cfg:
+        formats = cfg['formats']
+        if formats:
+            for fmt in formats:
+                ps.Format(fmt)
 
     return ps
 
@@ -292,17 +321,20 @@ def merge_parser_cfg(gparser_cfg, lparser_cfg):
     """
     merge global parser cfg into local parser cfg
     """
+    if not lparser_cfg:
+        return gparser_cfg
+
     if 'tokens' in gparser_cfg:
+        if 'tokens' not in lparser_cfg:
+            lparser_cfg['tokens'] = {}
         for k, v in gparser_cfg['tokens'].iteritems():
-            if k not in lparser_cfg:
-                if 'tokens' not in lparser_cfg:
-                    lparser_cfg['tokens'] = {}
+            if k not in lparser_cfg['tokens']:
                 lparser_cfg['tokens'][k] = v
 
     if 'groups' in gparser_cfg:
+        if 'groups' not in lparser_cfg:
+            lparser_cfg['groups'] = {}
         for k, v in gparser_cfg['groups'].iteritems():
-            if k not in lparser_cfg:
-                if 'groups' not in lparser_cfg:
-                    lparser_cfg['groups'] = {}
+            if k not in lparser_cfg['groups']:
                 lparser_cfg['groups'][k] = v
     return lparser_cfg

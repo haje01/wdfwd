@@ -1,4 +1,3 @@
-import os
 import time
 from datetime import datetime
 import traceback
@@ -6,12 +5,9 @@ import traceback
 from croniter import croniter
 
 from wdfwd.get_config import get_config
-from wdfwd.tail import FileTailer, TailThread, SEND_TERM, UPDATE_TERM,\
-    FluentCfg, KinesisCfg
-from wdfwd.util import ldebug, linfo, lerror, validate_format,\
-    validate_order_ptrn, supress_boto3_log
+from wdfwd.tail import FileTailer, TailThread
+from wdfwd.util import ldebug, linfo, lerror, supress_boto3_log, iter_tail_info
 from wdfwd.sync import sync_file
-from wdfwd.parser import create_parser, merge_parser_cfg
 
 
 cfg = get_config()
@@ -30,6 +26,7 @@ force_first_run = appc['service'].get('force_first_run', False)
 tail_threads = []
 fsender = None
 
+
 def start_tailing():
     ldebug("start_tailing-")
     supress_boto3_log()
@@ -38,116 +35,28 @@ def start_tailing():
         ldebug("no tailing config. return")
         return
 
-    file_enc = tailc.get('file_encoding')
-    pos_dir = tailc.get('pos_dir')
-    if not pos_dir:
-        lerror("no position dir info. return")
-        return
-    lines_on_start = tailc.get('lines_on_start')
-    max_between_data = tailc.get('max_between_data')
-    afrom = tailc['from']
-    fl_cfg = tailc['to'].get('fluent')
-    kn_cfg = tailc['to'].get('kinesis')
+    for i, ti in enumerate(iter_tail_info(tailc)):
+        ldebug("start file tail - bdir: '{}', ptrn: '{}', tag: '{}', "
+               "pos_dir: '{}', latest: '{}'".format(ti.bdir,
+                                                    ti.ptrn,
+                                                    ti.tag,
+                                                    ti.pos_dir,
+                                                    ti.latest))
 
-    gformat = tailc.get('format')
-    linfo("global log format: '{}'".format(gformat))
-    if gformat:
-        validate_format(ldebug, lerror, gformat)
+        tailer = FileTailer(ti.bdir, ti.ptrn, ti.tag, ti.pos_dir, ti.scfg,
+                            send_term=ti.send_term, update_term=ti.update_term,
+                            elatest=ti.latest, encoding=ti.file_enc,
+                            lines_on_start=ti.lines_on_start,
+                            max_between_data=ti.max_between_data,
+                            format=ti.format, parser=ti.parser,
+                            order_ptrn=ti.order_ptrn)
 
-    gpcfg = tailc.get('parser')
-    linfo("global log parser '{}'".format(gpcfg))
-    gparser = create_parser(gpcfg) if gpcfg else None
-
-    gorder_ptrn = tailc.get('order_ptrn')
-    ldebug("global order ptrn: '{}'".format(gorder_ptrn))
-    if gorder_ptrn:
-        validate_order_ptrn(ldebug, lerror, gorder_ptrn)
-
-    ldebug("pos_dir {}".format(pos_dir))
-
-    # make stream cfg
-    if not fl_cfg and not kn_cfg:
-        lerror("no fluent / kinesis server info. return")
-        return
-    elif fl_cfg:
-        ip = fl_cfg[0]
-        port = int(fl_cfg[1])
-        scfg = FluentCfg(ip, port)
-        ldebug("fluent: ip {}, port {}".format(ip, port))
-    elif kn_cfg:
-        stream_name = kn_cfg.get('stream_name')
-        region = kn_cfg.get('region')
-        access_key = kn_cfg.get('access_key')
-        secret_key = kn_cfg.get('secret_key')
-        scfg = KinesisCfg(stream_name, region, access_key, secret_key)
-
-    if len(afrom) == 0:
-        ldebug("no source info. return")
-        return
-
-    for i, src in enumerate(afrom):
-        cmd = src.keys()[0]
-        if cmd == 'file':
-            filec = src[cmd]
-            bdir = filec['dir']
-            ptrn = filec['pattern']
-            ldebug("file pattern: '{}'".format(ptrn))
-            latest = filec.get('latest')
-            format = filec.get('format')
-            ldebug("file format: '{}'".format(format))
-            order_ptrn = filec.get('order_ptrn')
-            pcfg = filec.get('parser')
-            if pcfg:
-                if gpcfg:
-                    pcfg = merge_parser_cfg(gpcfg, pcfg)
-                parser = create_parser(pcfg)
-                ldebug("file parser: '{}'".format(parser))
-            else:
-                parser = None
-
-            if not format and gformat:
-                linfo("file format not exist. use global format instead")
-                format = gformat
-            if not parser and gparser:
-                linfo("parser not exist. use global parser instead")
-                parser = gparser
-            if order_ptrn is None and gorder_ptrn:
-                linfo("file order_ptrn not exist. use global order_ptrn "
-                      "instead")
-                order_ptrn = gorder_ptrn
-
-            if format and parser:
-                linfo("Both format & parser exist. will use parser")
-                format = None
-
-            if not format and not parser:
-                lerror("Need format or parser")
-                return
-
-            tag = filec['tag']
-            send_term = filec.get('send_term', SEND_TERM)
-            update_term = filec.get('update_term', UPDATE_TERM)
-            ldebug("start file tail - bdir: '{}', ptrn: '{}', tag: '{}', "
-                   "pos_dir: '{}', latest: '{}'".format(bdir,
-                                                      ptrn,
-                                                      tag,
-                                                      pos_dir,
-                                                      latest))
-
-            tailer = FileTailer(bdir, ptrn, tag, pos_dir, scfg,
-                                send_term=send_term, update_term=update_term,
-                                elatest=latest, encoding=file_enc,
-                                lines_on_start=lines_on_start,
-                                max_between_data=max_between_data,
-                                format=format, parser=parser,
-                                order_ptrn=order_ptrn)
-
-            name = "tail{}".format(i+1)
-            tailer.trd_name = name
-            ldebug("create & start {} thread".format(name))
-            trd = TailThread(name, tailer)
-            tail_threads.append(trd)
-            trd.start()
+        name = "tail{}".format(i+1)
+        tailer.trd_name = name
+        ldebug("create & start {} thread".format(name))
+        trd = TailThread(name, tailer)
+        tail_threads.append(trd)
+        trd.start()
 
 
 def stop_tailing():

@@ -10,6 +10,7 @@ from wdfwd.parser import custom
 
 def test_parser_basic():
     psr = ps.Parser()
+    psr.set_file_path("dummy_path")
 
     with pytest.raises(ps.UnresolvedToken):
         psr._expand("%{unknown}")
@@ -143,7 +144,7 @@ parser:
 
 def test_parser_fcs():
     fcs = custom.FCS()
-    fcs.set_file_path("E:\\log\\FCSAdapter.dll.log.20160420-092124.19316")
+    fcs.set_file_path("dummy_path\FCSAdapter.dll.log.20160420-092124.19316")
     assert fcs.get_date() == '2016-04-20'
     assert fcs.parse_line("E0324 09:26:51.754881  2708 fcs_client.cpp:225] connection closed : 997")
     assert fcs.buf['dt_'] == '2016-04-20 09:26:51.754881'
@@ -208,8 +209,8 @@ def test_parser_fcs():
     assert fcs.buf['totalms'] == '0'
 
 
-def test_parser_mocca():
-    moc = custom.Mocca()
+def test_parser_mocaa():
+    moc = custom.Mocaa()
     # dtregx = moc.objects['%{datetime}']
     # assert dtregx.regex == r'(?P<datetime>\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} \(\+\d{2}\d{2}\))'
     assert moc.parse_line("==== 2016/06/01 02:51:19 (+0900) ====")

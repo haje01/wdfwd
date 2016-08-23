@@ -1,14 +1,12 @@
 import time
 import uuid
 import logging
-from base64 import b64encode, b64decode
+from base64 import b64encode
 
 import pytest
-import boto3
 from aws_kinesis_agg import aggregator
-from aws_kinesis_agg.deaggregator import deaggregate_records
 
-from wdfwd.util import prepare_kinesis_test, aws_lambda_dform, KN_TEST_STREAM
+from wdfwd.util import prepare_kinesis_test, KN_TEST_STREAM
 
 
 DEL_STREAM_AFTER = False
@@ -36,7 +34,7 @@ def test_kinesis_one(knc):
     data = "test data"
     for i in range(n_send):
         ret = knc.put_record(StreamName=KN_TEST_STREAM, Data=b64encode(data),
-                            PartitionKey='pk', SequenceNumberForOrdering='0')
+                             PartitionKey='pk', SequenceNumberForOrdering='0')
         assert 'ShardId' in ret
         assert ret['ResponseMetadata']['HTTPStatusCode'] == 200
         assert 'SequenceNumber' in ret
@@ -133,6 +131,8 @@ def test_kinesis_agg(knc):
                                 Data=data,
                                 PartitionKey=pk,
                                 ExplicitHashKey=ehk)
+        elp = time.time() - st
+        size = len(data)
         print "put_record done in {} for {}".format(elp, size)
 
         assert 'ShardId' in ret

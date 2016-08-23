@@ -20,7 +20,8 @@ def cli():
 @click.argument('file_path')
 @click.option('--cfg_path', help="Forwarder config file path.")
 @click.option('--cfile_idx', default=0, help="Tailing config file index.")
-def parser(file_path, cfg_path, cfile_idx):
+@click.option('--errors-only', is_flag=True, help="Show errors only.")
+def parser(file_path, cfg_path, cfile_idx, errors_only):
     if not cfg_path:
         assert CONFIG_NAME in os.environ
         cfg_path = os.environ[CONFIG_NAME]
@@ -29,14 +30,12 @@ def parser(file_path, cfg_path, cfile_idx):
     assert 'tailing' in cfg
     ctail = cfg['tailing']
     assert ctail['from']
-    if 'file_encoding' in ctail:
-        encoding = ctail['file_encoding']
+    encoding = ctail['file_encoding'] if 'file_encoding' in ctail else None
 
-    if 'parser' in ctail:
-        gpcfg = ctail['parser']
+    gpcfg = ctail['parser'] if 'parser' in ctail else None
     files = ctail['from']
     afile = files[cfile_idx]
-    pcfg = afile['file']['parser']
+    pcfg = afile['file']['parser'] if 'parser' in afile['file'] else None
     if gpcfg:
         pcfg = merge_parser_cfg(gpcfg, pcfg)
 
@@ -45,24 +44,32 @@ def parser(file_path, cfg_path, cfile_idx):
 
     n_succ = 0
     with open(file_path, 'rt') as f:
+        prev_compl = 0
         for line in f:
+            if len(line.strip()) == 0:
+                continue
             parsed = parser.parse_line(line)
             if not parsed:
                 print "Parsing failed! : '{}'".format(line)
+                if not errors_only:
+                    sys.exit(-1)
                 sys.exit(-1)
             else:
-                print parser.parsed
+                if parser.completed <= prev_compl:
+                    continue
+                prev_compl = parser.completed
+                if not errors_only:
+                    print parser.parsed
+                    print
                 n_succ += 1
-                if n_succ > 10:
-                    print 'Printed only first 10 results.'
-                    break
 
 
 @cli.command()
 @click.argument('file_path')
 @click.option('--cfg_path', help="Forwarder config file path.")
 @click.option('--cfile_idx', default=0, help="Tailing config file index.")
-def format(file_path, cfg_path, cfile_idx):
+@click.option('--errors-only', is_flag=True, help="Show errors only.")
+def format(file_path, cfg_path, cfile_idx, errors_only):
     import re
 
     if not cfg_path:
@@ -81,10 +88,12 @@ def format(file_path, cfg_path, cfile_idx):
         for line in f:
             try:
                 gd = ptrn.search(line).groupdict()
-                print(gd)
+                if not errors_only:
+                    print(gd)
             except AttributeError:
                 print "Parsing failed! : '{}'".format(line)
-                sys.exit(-1)
+                if not errors_only:
+                    sys.exit(-1)
 
 
 if __name__ == '__main__':
