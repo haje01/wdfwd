@@ -51,8 +51,7 @@ def start_tailing():
                             format=ti.format, parser=ti.parser,
                             order_ptrn=ti.order_ptrn)
 
-        name = "tail{}".format(i+1)
-        tailer.trd_name = name
+        name = ti.tag
         ldebug("create & start {} thread".format(name))
         trd = TailThread(name, tailer)
         tail_threads.append(trd)

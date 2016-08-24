@@ -15,7 +15,7 @@ log:
     version: 1
     formatters:
         simpleFormatter:
-            format: '%(asctime)s [%(levelname)s] - %(message)s'
+            format: '%(asctime)s %(threadName)s [%(levelname)s] - %(message)s'
             datefmt: '%Y/%m/%d %H:%M:%S'
     handlers:
         file:
@@ -31,11 +31,6 @@ log:
         handlers: [file]
     to_url: # RSYNC-SERVER-URL-FOR-LOG ex) rsync-user@myserver.net::rsync-backup/myprj
     fluent: # FLUENT-SERVER-IP-AND-PORT ex) ['localhost', 24224]
-    kinesis:
-            access_key: # AWS Access Key
-            secret_key: # AWS Secret Key
-            stream_name: # AWS Kinesis Stream Name
-            region: # AWS Region ex) ap-northeast-2
 
 
 tailing:

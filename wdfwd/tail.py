@@ -46,7 +46,6 @@ class TailThread(threading.Thread):
     def __init__(self, name, tailer):
         threading.Thread.__init__(self)
         self.name = name
-        tailer.trd_name = name
         self.tailer = tailer
         self.linfo("TailThread::__init__ - {}".format(self.name))
         self._exit = False
@@ -155,7 +154,6 @@ class FileTailer(object):
                  lines_on_start=None, max_between_data=None, format=None,
                  parser=None, order_ptrn=None):
 
-        self.trd_name = ""
         self.fsender = self.kclient = None
         self.ksent_seqn = self.ksent_shid = None
         self.linfo("__init__", "max_send_fail: '{}'".format(max_send_fail))
