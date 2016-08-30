@@ -7,7 +7,7 @@ import pytest
 
 from wdfwd.get_config import get_config
 from wdfwd.tail import FileTailer, NoTargetFile, TailThread, get_file_lineinfo,\
-    FluentCfg, KinesisCfg
+    FluentCfg, KinesisCfg, MAX_READ_BUF
 from wdfwd.util import InvalidLogFormat, KN_TEST_STREAM, iter_kinesis_records
 
 cfg = get_config()
@@ -594,7 +594,7 @@ def test_tail_file_elatest3(rmlogs):
 
     ptrn = "z*_action.*"
     ftail = FileTailer(bdir, ptrn, 'wdfwd.tail', pos_dir, fcfg, 0,
-                       elatest=EXP_LATEST, reverse_cand=True)
+                       elatest=EXP_LATEST, reverse_order=True)
     ftail.update_target()
     rotated, psent_pos, sent_line = ftail.tmain()
 
@@ -728,11 +728,11 @@ def test_tail_file_lineinfo(rmlogs):
         for i in range(3):
             f.write('{}\n'.format(i))
 
-    lines, pos = get_file_lineinfo(path)
+    lines, pos = get_file_lineinfo(path, MAX_READ_BUF)
     assert lines == 3
     assert pos == 9
 
-    lines, pos = get_file_lineinfo(path, 1)
+    lines, pos = get_file_lineinfo(path, MAX_READ_BUF, 1)
     assert lines == 2
     assert pos == 6
 
@@ -740,11 +740,11 @@ def test_tail_file_lineinfo(rmlogs):
         f.seek(pos)
         assert f.read() == '2\n'
 
-    lines, pos = get_file_lineinfo(path, 3)
+    lines, pos = get_file_lineinfo(path, MAX_READ_BUF, 3)
     assert lines == 0
     assert pos == 0
 
-    lines, pos = get_file_lineinfo(path, 4)
+    lines, pos = get_file_lineinfo(path, MAX_READ_BUF, 4)
     assert lines == 0
     assert pos == 0
 

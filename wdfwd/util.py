@@ -369,7 +369,8 @@ TailInfo = namedtuple('TailInfo', ['bdir', 'ptrn', 'tag', 'pos_dir', 'scfg',
                                    'send_term', 'update_term', 'latest',
                                    'file_enc', 'lines_on_start',
                                    'max_between_data', 'format', 'parser',
-                                   'order_ptrn', 'reverse_order'])
+                                   'order_ptrn', 'reverse_order',
+                                   'max_read_buffer'])
 
 
 def iter_tail_info(tailc):
@@ -385,6 +386,7 @@ def iter_tail_info(tailc):
 
     lines_on_start = tailc.get('lines_on_start')
     max_between_data = tailc.get('max_between_data')
+    max_read_buffer = tailc.get('max_read_buffer')
     afrom = tailc['from']
     fl_cfg = tailc['to'].get('fluent')
     kn_cfg = tailc['to'].get('kinesis')
@@ -497,6 +499,8 @@ def iter_tail_info(tailc):
                              update_term=update_term, latest=latest,
                              file_enc=file_enc, lines_on_start=lines_on_start,
                              max_between_data=max_between_data,
+                             max_read_buffer=max_read_buffer,
                              format=format, parser=parser,
-                             order_ptrn=order_ptrn, reverse_order=reverse_order)
+                             order_ptrn=order_ptrn,
+                             reverse_order=reverse_order)
             yield tinfo

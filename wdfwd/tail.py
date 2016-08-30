@@ -20,7 +20,7 @@ from wdfwd.util import OpenNoLock, get_fileid, escape_path, validate_format as\
     _validate_format, validate_order_ptrn as _validate_order_ptrn,\
     query_aws_client
 
-MAX_READ_BUF = 1024 * 1024
+MAX_READ_BUF = 1024 * 1024 * 2  # 2MB
 MAX_SEND_RETRY = 5
 SEND_TERM = 1       # 1 second
 UPDATE_TERM = 5     # 5 seconds
@@ -93,24 +93,24 @@ class TailThread(threading.Thread):
         self._exit = True
 
 
-def get_file_lineinfo(path, post_lines=None):
+def get_file_lineinfo(path, max_read_buf, post_lines=None):
     pos_tot = 0
     line_tot = 0
     if post_lines:
         with OpenNoLock(path) as fh:
             while True:
-                res, data = win32file.ReadFile(fh, MAX_READ_BUF, None)
+                res, data = win32file.ReadFile(fh, max_read_buf, None)
                 nbyte = len(data)
                 pos_tot += nbyte
                 line_tot += len(data.splitlines())
-                if nbyte < MAX_READ_BUF:
+                if nbyte < max_read_buf:
                     break
 
     pos = 0
     nlines = 0
     with OpenNoLock(path) as fh:
         while True:
-            res, data = win32file.ReadFile(fh, MAX_READ_BUF, None)
+            res, data = win32file.ReadFile(fh, max_read_buf, None)
             nbyte = len(data)
             for line in data.splitlines():
                 if post_lines and line_tot - nlines <= post_lines:
@@ -119,7 +119,7 @@ def get_file_lineinfo(path, post_lines=None):
                 if pos_tot and pos > pos_tot:
                     pos = pos_tot
                 nlines += 1
-            if nbyte < MAX_READ_BUF:
+            if nbyte < max_read_buf:
                 break
     return nlines, pos
 
@@ -152,7 +152,7 @@ class FileTailer(object):
                  send_term=SEND_TERM, update_term=UPDATE_TERM,
                  max_send_fail=None, elatest=None, echo=False, encoding=None,
                  lines_on_start=None, max_between_data=None, format=None,
-                 parser=None, order_ptrn=None, reverse_order=False):
+                 parser=None, order_ptrn=None, reverse_order=False, max_read_buffer=None):
 
         self.fsender = self.kclient = None
         self.ksent_seqn = self.ksent_shid = None
@@ -196,6 +196,8 @@ class FileTailer(object):
         self.lines_on_start = lines_on_start if lines_on_start else 0
         self.max_between_data = max_between_data if max_between_data else\
             MAX_BETWEEN_DATA
+        self.max_read_buffer = max_read_buffer if max_read_buffer else\
+            MAX_READ_BUF
         self._reset_ml_msg()
         self.linfo("effective format: '{}'".format(format))
         self.format = self.validate_format(format)
@@ -536,12 +538,12 @@ class FileTailer(object):
     def _read_target_to_end(self, fh):
         self.raise_if_notarget()
 
-        res, lines = win32file.ReadFile(fh, MAX_READ_BUF, None)
+        res, lines = win32file.ReadFile(fh, self.max_read_buffer, None)
         nbyte = len(lines)
         if res != 0:
             self.lerror(1, "ReadFile Error! {}".format(res))
             return '', 0
-        if nbyte == MAX_READ_BUF:
+        if nbyte == self.max_read_buffer:
             self.lwarning(1, "Read Buffer Full! Possibly corrupted last line.")
 
         return lines, nbyte
@@ -772,7 +774,8 @@ class FileTailer(object):
             spos = file_pos
 
         if self.lines_on_start:
-            lines, pos = get_file_lineinfo(tpath, self.lines_on_start)
+            lines, pos = get_file_lineinfo(tpath, self.max_read_buffer,
+                                           self.lines_on_start)
             self.lwarning("get_file_lineinfo for lines_on_start "
                           "{} - {} {}".format(self.lines_on_start, lines, pos))
             spos = pos

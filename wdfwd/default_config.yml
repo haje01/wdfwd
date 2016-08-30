@@ -34,7 +34,8 @@ log:
 
 
 tailing:
-    max_between_data: # skip between data larger than this size. default) 1000000
+    # max_between_data: # skip between data larger than this size. default) 1000000
+    # max_read_buffer: default) 2097152
     file_encoding: # target file encoding  ex) cp949
     pos_dir: # TAIL-POS-FOLDER-PATH ex) C:\wdfwd-temp
     format: # regular expression for log line. 
