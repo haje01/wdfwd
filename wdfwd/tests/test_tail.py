@@ -54,6 +54,19 @@ def _ftail():
     return tail
 
 
+@pytest.fixture(scope='function')
+def ftail_fmt():
+    finfo = tcfg['from'][0]['file']
+    bdir = finfo['dir']
+    ptrn = finfo['pattern']
+    tag = finfo['tag']
+    fmt = '(?P<dt_>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})'
+    tail = FileTailer(bdir, ptrn, tag, pos_dir, fcfg,
+                      send_term=0, update_term=0, echo=True,
+                      max_between_data=100 * 100, format=fmt)
+    return tail
+
+
 def _ktail():
     finfo = tcfg['from'][0]['file']
     bdir = finfo['dir']
@@ -562,6 +575,77 @@ def test_tail_file_elatest2(rmlogs):
     assert ftail.may_send_newlines() == 3
 
 
+def test_tail_file_elatest3(rmlogs):
+    """
+    CASE 3: rotate elatest, reversed pre-elatest order
+    """
+    import shutil
+
+    EXP_LATEST = 'z1_action.log'
+    PRE_LATEST = 'z1_action.log.1'
+    PRE_LATEST2 = 'z1_action.log.2'
+
+    finfo = tcfg['from'][0]['file']
+    bdir = finfo['dir']
+
+    epath = os.path.join(bdir, EXP_LATEST)
+    with open(epath, 'w') as f:
+        f.write('A\n')
+
+    ptrn = "z*_action.*"
+    ftail = FileTailer(bdir, ptrn, 'wdfwd.tail', pos_dir, fcfg, 0,
+                       elatest=EXP_LATEST, reverse_cand=True)
+    ftail.update_target()
+    rotated, psent_pos, sent_line = ftail.tmain()
+
+    assert ftail.target_path.endswith(EXP_LATEST)
+    assert ftail.elatest_fid is not None
+    assert sent_line == 1
+
+    elatest_sent_pos = ftail.get_sent_pos()
+    with open(epath, 'a') as f:
+        f.write('B\n')
+        f.write('C\n')
+
+    # rotate latest
+    pre_sent_pos = ftail.get_sent_pos()
+    pre_path = os.path.join(bdir, PRE_LATEST)
+    shutil.move(epath, pre_path)
+    assert os.path.isfile(pre_path)
+    assert not os.path.isfile(epath)
+
+    # new elatest
+    with open(epath, 'w') as f:
+        f.write('a\n')
+        f.write('b\n')
+        f.write('c\n')
+    time.sleep(1)
+
+    rotated, psent_pos, sent_line = ftail.tmain()
+    assert rotated
+    # pre-elatest file is target
+    assert ftail.target_path == pre_path
+    # pre-elatest sent_pos is equal to elatest's
+    assert psent_pos == elatest_sent_pos
+    # send remain 2 lines
+    assert sent_line == 2
+
+    # now new elatest is target
+    ftail.update_target()
+    assert ftail.target_path == epath
+    assert ftail.may_send_newlines() == 3
+
+    # rotate again
+    time.sleep(2)
+    pre_path2 = os.path.join(bdir, PRE_LATEST2)
+    shutil.move(pre_path, pre_path2)
+    shutil.move(epath, pre_path)
+    rotated = ftail.handle_elatest_rotation(cur=0)
+    assert rotated
+    ftail.update_target()
+    assert ftail.target_path == pre_path
+
+
 def test_tail_file_continue(rmlogs, ftail):
     path = os.path.join(ftail.bdir, 'tailtest_2016-03-30.log')
     with open(path, 'w') as f:
@@ -733,3 +817,31 @@ def test_tail_iislog():
         if not match:
             continue
         print match.groupdict()
+
+
+@pytest.mark.skip(reason="not implemented. remove skip mark to develop")
+def test_tail_uncompleted(rmlogs, ftail_fmt):
+    path = os.path.join(ftail_fmt.bdir, 'tailtest_2016-03-30.log')
+    with open(path, 'w') as f:
+        f.write('2016-08-23 11:22:30\n')
+        f.write('2016-08-23')
+        f.flush()
+
+    ftail_fmt.update_target()
+
+    assert ftail_fmt.target_path.endswith("tailtest_2016-03-30.log")
+    assert ftail_fmt.target_fid
+    assert ftail_fmt.get_file_pos() == 31
+    # send previous data if it has moderate size
+    assert ftail_fmt.get_sent_pos() == 0
+    assert ftail_fmt.may_send_newlines() == 1
+    assert ftail_fmt.get_sent_pos() == 21
+
+    with open(path, 'a') as f:
+        f.write('11:22:33\n')
+        f.flush()
+
+    # send new line
+    assert ftail_fmt.get_file_pos() == 42
+    assert ftail_fmt.may_send_newlines() == 1
+    assert ftail_fmt.get_sent_pos() == 42

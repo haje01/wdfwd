@@ -152,7 +152,7 @@ class FileTailer(object):
                  send_term=SEND_TERM, update_term=UPDATE_TERM,
                  max_send_fail=None, elatest=None, echo=False, encoding=None,
                  lines_on_start=None, max_between_data=None, format=None,
-                 parser=None, order_ptrn=None):
+                 parser=None, order_ptrn=None, reverse_order=False):
 
         self.fsender = self.kclient = None
         self.ksent_seqn = self.ksent_shid = None
@@ -170,6 +170,7 @@ class FileTailer(object):
         self.update_term = update_term
         self.last_update = 0
         self.kpk_cnt = 0  # count for kinesis partition key
+        self.reverse_order = reverse_order
         max_send_fail = max_send_fail if max_send_fail else MAX_SEND_FAIL
 
         tstc = type(stream_cfg)
@@ -389,8 +390,23 @@ class FileTailer(object):
         return False
 
     def get_sorted_target_files(self):
-        self.linfo("get_sorted_target_files")
+        """
+            Returns sorted target files.
+            If elatest is in target files, remove it.
+            Default sort order is ascending alphanumerical order.
+            Oldest file appears first, and newest file supposed to be at the
+            end.
+        """
+        reverse = self.reverse_order
+        self.linfo("get_sorted_target_files - reverse {}".format(reverse))
+
+        # remove elatest if it is in this candidates
         files = glob.glob(os.path.join(self.bdir, self.ptrn))
+        if self.elatest:
+            epath = os.path.join(self.bdir, self.elatest)
+            if epath in files:
+                files.remove(epath)
+
         if self.order_ptrn:
             self.linfo("order_ptrn {}".format(self.order_ptrn))
             order_key = {}
@@ -404,8 +420,10 @@ class FileTailer(object):
                 order_key[afile] = gd['date'] +\
                     ".{:06d}".format(int(gd['order']))
                 self.ldebug("order_key - {}".format(order_key[afile]))
-            return sorted(files, key=lambda f: order_key[f])
+            return sorted(files, key=lambda f: order_key[f], reverse=reverse)
         else:
+            if len(files) > 0 and reverse:
+                files = sorted(files, reverse=reverse)
             self.ldebug("files {}".format(files))
             return files
 

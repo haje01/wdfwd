@@ -52,6 +52,7 @@ tailing:
         - file:
             dir: # LOG-FILE-FOLDER-TO-TAIL ex) C:\MyApp\tlog
             latest: # specific latest file
+            # reverse_order:  # reverse target files default) false
             pattern: # LOG-FILE-PATTERN ex) log2_*-*-*.log
             tag: # FLUENT-TAG  ex) wdfwd.myapp.tlog2
     to:

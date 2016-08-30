@@ -369,7 +369,7 @@ TailInfo = namedtuple('TailInfo', ['bdir', 'ptrn', 'tag', 'pos_dir', 'scfg',
                                    'send_term', 'update_term', 'latest',
                                    'file_enc', 'lines_on_start',
                                    'max_between_data', 'format', 'parser',
-                                   'order_ptrn'])
+                                   'order_ptrn', 'reverse_order'])
 
 
 def iter_tail_info(tailc):
@@ -381,6 +381,8 @@ def iter_tail_info(tailc):
     if not pos_dir:
         lerror("no position dir info. return")
         return
+    ldebug("pos_dir {}".format(pos_dir))
+
     lines_on_start = tailc.get('lines_on_start')
     max_between_data = tailc.get('max_between_data')
     afrom = tailc['from']
@@ -401,7 +403,8 @@ def iter_tail_info(tailc):
     if gorder_ptrn:
         validate_order_ptrn(ldebug, lerror, gorder_ptrn)
 
-    ldebug("pos_dir {}".format(pos_dir))
+    greverse_order = tailc.get('reverse_order')
+    ldebug("global reverse order : '{}'".format(greverse_order))
 
     # make stream cfg
     if not fl_cfg and not kn_cfg:
@@ -435,13 +438,14 @@ def iter_tail_info(tailc):
                 format = filec.get('format')
                 ldebug("file format: '{}'".format(format))
                 order_ptrn = filec.get('order_ptrn')
+                reverse_order = filec.get('reverse_order')
                 pcfg = filec.get('parser')
                 tag = filec.get('tag')
                 send_term = filec.get('send_term', SEND_TERM)
                 update_term = filec.get('update_term', UPDATE_TERM)
             else:
                 bdir = ptrn = latest = format = order_ptrn = pcfg = tag =\
-                    send_term = update_term = None
+                    send_term = update_term = reverse_order = None
 
             if pcfg:
                 if gpcfg:
@@ -483,11 +487,16 @@ def iter_tail_info(tailc):
                       "instead")
                 order_ptrn = gorder_ptrn
 
+            if reverse_order is None and greverse_order:
+                linfo("file reverse_order not exist. use global reverse_order "
+                      "instead")
+                reverse_order = greverse_order
+
             tinfo = TailInfo(bdir=bdir, ptrn=ptrn, tag=tag, pos_dir=pos_dir,
                              scfg=scfg, send_term=send_term,
                              update_term=update_term, latest=latest,
                              file_enc=file_enc, lines_on_start=lines_on_start,
                              max_between_data=max_between_data,
                              format=format, parser=parser,
-                             order_ptrn=order_ptrn)
+                             order_ptrn=order_ptrn, reverse_order=reverse_order)
             yield tinfo

@@ -49,7 +49,8 @@ def start_tailing():
                             lines_on_start=ti.lines_on_start,
                             max_between_data=ti.max_between_data,
                             format=ti.format, parser=ti.parser,
-                            order_ptrn=ti.order_ptrn)
+                            order_ptrn=ti.order_ptrn,
+                            reverse_order=ti.reverse_order)
 
         name = ti.tag
         ldebug("create & start {} thread".format(name))
