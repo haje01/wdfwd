@@ -40,8 +40,12 @@ class FCS(CustomParser):
         super(FCS, self).__init__(encoding)
 
         self.Token("time", r'\d{2}:\d{2}:\d{2}\.\d+')
+        self.Token("year", r'\d{4}')
+        self.Token("month", r'\d{2}')
+        self.Token("day", r'\d{2}')
+        self.Group("date", r'%{year}%{month}%{day}')
         self.Token("level", r'[IWEF]')
-        self.Group("linfo", r'%{level}\d+')
+        self.Group("linfo", r'%{level}%{date}')
         self.Token("trdid", r'\d+')
         self.Token("srcfile", r'\w+\.\w+')
         self.Token("srcline", r'\d+')
@@ -63,10 +67,10 @@ class FCS(CustomParser):
         logging.debug("set_file_path {}".format(file_path))
         super(FCS, self).set_file_path(file_path)
         dt = os.path.basename(file_path).split('.')[3].split('-')[0]
-        self.date = '{}-{}-{}'.format(dt[:4], dt[4:6], dt[6:8])
+        # self.date = '{}-{}-{}'.format(dt[:4], dt[4:6], dt[6:8])
 
-    def get_date(self):
-        return self.date
+    # def get_date(self):
+    #    return self.date
 
     def flush(self):
         super(FCS, self).flush()
@@ -74,8 +78,9 @@ class FCS(CustomParser):
 
     def handle_head(self, taken):
         self.flush()
+        year, month, day = taken['year'], taken['month'], taken['day']
         time = taken['time']
-        dt = '{} {}'.format(self.date, time)
+        dt = '{}-{}-{} {}'.format(year, month, day, time)
         del taken['time']
         taken['dt_'] = dt
         self.save(taken)

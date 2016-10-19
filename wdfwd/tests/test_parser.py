@@ -145,15 +145,16 @@ parser:
 def test_parser_fcs():
     fcs = custom.FCS()
     fcs.set_file_path("dummy_path\FCSAdapter.dll.log.20160420-092124.19316")
-    assert fcs.get_date() == '2016-04-20'
-    assert fcs.parse_line("E0324 09:26:51.754881  2708 fcs_client.cpp:225] connection closed : 997")
-    assert fcs.buf['dt_'] == '2016-04-20 09:26:51.754881'
+    # assert fcs.get_date() == '2016-04-20'
+    assert fcs.parse_line("E20160324 09:26:51.754881  2708 fcs_client.cpp:225] connection closed : 997")
+    assert fcs.buf['dt_'] == '2016-03-24 09:26:51.754881'
     assert fcs.buf['level'] == 'E'
-    assert len(fcs.buf) == 6
+    assert len(fcs.buf) == 9
     assert fcs.completed == 0
 
-    assert fcs.parse_line("E0324 11:37:52.508764  3304 communicator.hpp:128] [8371] response sync")
-    assert len(fcs.parsed) == 6
+    assert fcs.parse_line("E20160325 11:37:52.508764  3304 communicator.hpp:128] [8371] response sync")
+    assert len(fcs.parsed) == 9
+    assert fcs.buf['dt_'] == '2016-03-25 11:37:52.508764'
     assert fcs.completed == 1
 
     assert fcs.parse_line(" [RequestValidateAuthenticationKey]")
@@ -188,13 +189,13 @@ def test_parser_fcs():
     fcs.parse_line("  auth_ip : ")
     assert fcs.buf["res-auth_ip"] == ''
 
-    fcs.parse_line("E0324 11:39:31.027815  3316 communicator.hpp:128] [8481] response sync")
-    assert len(fcs.parsed) == 28
+    fcs.parse_line("E20160324 11:39:31.027815  3316 communicator.hpp:128] [8481] response sync")
+    assert len(fcs.parsed) == 31
     assert fcs.parsed["res-auth_ip"] == ''
-    assert len(fcs.buf) == 6
+    assert len(fcs.buf) == 9
     assert fcs.completed == 2
 
-    assert fcs.parse_line("I0420 11:48:24.739433 26224 communicator.hpp:124] [3362162] response sync")
+    assert fcs.parse_line("I20160420 11:48:24.739433 26224 communicator.hpp:124] [3362162] response sync")
     fcs.parse_line(" [ResponseGetPCRoomGuid]")
     fcs.parse_line("  packet_length : 14")
     fcs.parse_line("  packet_type : 0x34")
@@ -203,9 +204,11 @@ def test_parser_fcs():
     fcs.parse_line("  condition_type : 0x64")
     fcs.parse_line("  pc_room_guid : 0")
     assert fcs.buf['level'] == 'I'
+    assert fcs.buf['dt_'] == '2016-04-20 11:48:24.739433'
 
-    fcs.parse_line("I0420 11:48:24.739433 26224 communicator.hpp:133] [3362162] <total: 0 msec>")
+    fcs.parse_line("I20160420 11:48:24.739433 26224 communicator.hpp:133] [3362162] <total: 0 msec>")
     assert fcs.buf['transaction_id'] == '3362162'
+    assert fcs.buf['dt_'] == '2016-04-20 11:48:24.739433'
     assert fcs.buf['totalms'] == '0'
 
 
