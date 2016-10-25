@@ -174,7 +174,7 @@ class Connector(object):
         else:
             self.date_column = dbc['table']['date_column']
             self.no_daily_table = True
-        self.skip_last = dbc['table'].get('skip_today', True)
+        self.skip_last = dbc['table'].get('skip_last', True)
         self.sys_schema = dbc['sys_schema']
         self.table_names = [TableInfo(tn) for tn in dbc['table']['names']]
 

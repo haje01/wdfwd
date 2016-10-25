@@ -122,7 +122,7 @@ tasks:
                     - {'name': 'TblMissionPlayLogOpr_', 'ecols': ['cWorldNo', 'cSvrNo']}
                 date_pattern: ".*_(\\d{8})"
                 date_format: "%Y%m%d"
-                skip_today: true
+                skip_last: true
             sys_schema: false
             type_encodings:
                 # specify encoding for a db type when conversion needed
