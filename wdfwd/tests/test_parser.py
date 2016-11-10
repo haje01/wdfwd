@@ -221,7 +221,7 @@ def test_parser_mocaa():
     assert moc.buf['ltype'] == 'API Request'
     assert moc.parse_line('{"service_code":"SVC009","store_type":"playstore","params":"","client_ip":"192.168.0.11"}')
 
-    assert moc.parse_line('==== 2016/06/01 02:51:19 (+0900) ====')
+    assert moc.parse_line('==== 2016-06-01 02:51:19 (+0900) ====')
     assert moc.completed == 1
     assert moc.parsed['ltype'] == 'API Request'
     assert moc.parse_line('[API Response][c6b3d85e-1f60-47e8-a07c-4379db9c2bc6][898 ms] /v2/contents/start')
