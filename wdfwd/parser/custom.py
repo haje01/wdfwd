@@ -112,9 +112,10 @@ class FCS(CustomParser):
 
 class Mocaa(CustomParser):
     def __init__(self, encoding=None):
+        encoding = 'utf-8-sig'
         super(Mocaa, self).__init__(encoding)
 
-        self.Token('date', r'\d{4}/\d{2}/\d{2}')
+        self.Token('date', r'\d{4}[/-]\d{2}[/-]\d{2}')
         self.Token('time', r'\d{2}:\d{2}:\d{2}')
         self.Token('tz', r'\(%(\+\d{2}\d{2})\)')
         self.Group('datetime', r'%{date} %{time} %{tz}')
