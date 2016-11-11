@@ -124,7 +124,7 @@ wdfwd 자체 로그 관련 설정이다.
 
         # (Recursive) file sync with filename pattern
         - sync_files:
-            base_folder: # TARGET-FOLDER-PATH ex) C:\MyApp\\dump
+            base_folder: # TARGET-FOLDER-PATH ex) C:\MyApp\dump
             filename_pattern: # TARGET-FILE-PATTERN ex) "*.dmp"
             recurse: true
             # rsync server url
@@ -402,7 +402,7 @@ json 파싱된 결과는 다른 토큰의 결과와 합쳐지는데, 이때 같�
 
 사용 방법은 아래와 같다.
 
-    > test format --help
+    > cfgtest format --help
     Usage: test format [OPTIONS] FILE_PATH
 
     Options:
@@ -455,7 +455,7 @@ json 파싱된 결과는 다른 토큰의 결과와 합쳐지는데, 이때 같�
 
 윈도우 재부팅 시에도 서비스가 자동으로 실행되도록 설치한다.
 
-`wdfwd_svc.exe —startup=auto install`
+`wdfwd_svc.exe —-startup=auto install`
 
 #### 서비스 시작 
 다음과 같이 서비스를 시작하고
