@@ -170,4 +170,8 @@ class Mocaa(CustomParser):
         elif self.resbody.parse(line, True):
             self.jsonbegin = True
             return True
+        elif line == u'\x00\n':
+            # ignore json tailing null nl
+            return True
+
         return False
