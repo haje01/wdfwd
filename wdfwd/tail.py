@@ -1,3 +1,4 @@
+from __future__ import print_function
 import os
 import glob
 import time
@@ -15,6 +16,7 @@ import win32file
 import pywintypes
 from fluent.sender import FluentSender, MAX_SEND_FAIL
 from aws_kinesis_agg import aggregator
+import pyodbc  # NOQA
 
 from wdfwd.util import OpenNoLock, get_fileid, escape_path, validate_format as\
     _validate_format, validate_order_ptrn as _validate_order_ptrn,\
@@ -829,3 +831,113 @@ class BaseTailer(object):
         except Exception, e:
             self.lerror("Fail to write pos file: {} {}".format(e, path))
         self.cache_sent_pos[tpath] = pos
+
+
+class FileTailer(BaseTailer):
+    def __init__(self, bdir, ptrn, tag, pdir,
+                 stream_cfg,
+                 send_term=SEND_TERM, update_term=UPDATE_TERM,
+                 max_send_fail=None, elatest=None, echo=False, encoding=None,
+                 lines_on_start=None, max_between_data=None, format=None,
+                 parser=None, order_ptrn=None, reverse_order=False,
+                 max_read_buffer=None):
+        super(FileTailer, self).__init__(bdir=bdir, ptrn=ptrn, tag=tag,
+                                         pdir=pdir, stream_cfg=stream_cfg,
+                                         send_term=send_term,
+                                         update_term=update_term,
+                                         max_send_fail=max_send_fail,
+                                         elatest=elatest, echo=echo,
+                                         encoding=encoding,
+                                         lines_on_start=lines_on_start,
+                                         max_between_data=max_between_data,
+                                         format=format, parser=parser,
+                                         order_ptrn=order_ptrn,
+                                         reverse_order=reverse_order,
+                                         max_read_buffer=max_read_buffer)
+
+
+def db_execute(con, cmd):
+    try:
+        con.cursor.execute(cmd)
+    except pyodbc.ProgrammingError as e:
+        lerror(str(e[1]))
+        return False
+    return True
+
+
+class DBConnector(object):
+
+    def __init__(self, dcfg, ldebug=print, lerror=print):
+        self.conn = None
+        self.cursor = None
+        dbc = dcfg['db']
+        dbcc = dbc['connect']
+        self.driver = dbcc['driver']
+        self.server = dbcc['server']
+        port = dbcc['port']
+        if port:
+            self.server = '%s,%d' % (self.server, port)
+        self.database = dbcc['database']
+        self.trustcon = dbcc['trustcon']
+        self.read_uncommit = dbcc['read_uncommit'] if 'read_uncommit' in dbcc\
+            else True
+        self.uid = dbcc['uid']
+        self.passwd = dbcc['passwd']
+        self.fetchsize = dbc['fetchsize']
+        self.sys_schema = dbc['sys_schema']
+        self.ldebug = ldebug
+        self.lerror = lerror
+
+    @property
+    def txn_iso_level(self):
+        cmd = """
+SELECT CASE transaction_isolation_level
+WHEN 0 THEN 'Unspecified'
+WHEN 1 THEN 'ReadUncommitted'
+WHEN 2 THEN 'ReadCommitted'
+WHEN 3 THEN 'Repeatable'
+WHEN 4 THEN 'Serializable'
+WHEN 5 THEN 'Snapshot' END AS TRANSACTION_ISOLATION_LEVEL
+FROM sys.dm_exec_sessions
+WHERE Session_id = @@SPID"""
+        self.cursor.execute(cmd)
+        rv = self.cursor.fetchall()[0][0]
+        return rv
+
+    def __enter__(self):
+        global pyodbc
+        self.ldebug('db.Connector enter')
+        acs = ''
+        if self.trustcon:
+            acs = 'Trusted_Connection=yes'
+        elif self.uid is not None and self.passwd is not None:
+            acs = 'UID=%s;PWD=%s' % (self.uid, self.passwd)
+        cs = "DRIVER=%s;Server=%s;Database=%s;%s;" % (self.driver, self.server,
+                                                      self.database, acs)
+        try:
+            conn = pyodbc.connect(cs)
+        except pyodbc.Error as e:
+            self.lerror(e[1])
+            return
+        else:
+            self.conn = conn
+            self.cursor = conn.cursor()
+            self.cursor.execute("SET DATEFORMAT ymd")
+            if self.read_uncommit:
+                self.ldebug("set read uncommited")
+                self.ldebug("  old isolation option:"
+                            " {}".format(self.txn_iso_level))
+                cmd = "SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED"
+                self.cursor.execute(cmd)
+                self.ldebug("  new isolation option: "
+                            "{}".format(self.txn_iso_level))
+        return self
+
+    def __exit__(self, _type, value, tb):
+        self.ldebug('db.Connector exit')
+        if self.cursor is not None:
+            self.ldebug('cursor.close()')
+            self.cursor.close()
+        if self.conn is not None:
+            self.ldebug('conn.close()')
+            self.conn.close()

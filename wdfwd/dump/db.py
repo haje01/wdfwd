@@ -236,6 +236,8 @@ def execute(con, cmd):
         con.cursor.execute(cmd)
     except pyodbc.ProgrammingError as e:
         lerror(str(e[1]))
+        return False
+    return True
 
 
 def table_array(con, prefix):
