@@ -31,7 +31,8 @@ FMT_TEXT_BODY = 2
 BULK_SEND_SIZE = 200
 
 FluentCfg = namedtuple('FluentCfg', ['host', 'port'])
-KinesisCfg = namedtuple('KinesisCfg', ['stream_name', 'region', 'access_key', 'secret_key'])
+KinesisCfg = namedtuple('KinesisCfg', ['stream_name', 'region', 'access_key',
+                                       'secret_key'])
 
 
 class NoTargetFile(Exception):
@@ -141,18 +142,21 @@ def _log(tail, level, tabfunc, _msg):
     ts = int(time.time())
     if tail.fsender:
         try:
-            tail.fsender.emit_with_time("{}".format(level), ts, {"message": msg})
+            tail.fsender.emit_with_time("{}".format(level), ts, {"message":
+                                                                 msg})
         except Exception, e:
             logging.warning("_log", "send fail '{}'".format(e))
 
 
-class FileTailer(object):
+
+class BaseTailer(object):
     def __init__(self, bdir, ptrn, tag, pdir,
                  stream_cfg,
                  send_term=SEND_TERM, update_term=UPDATE_TERM,
                  max_send_fail=None, elatest=None, echo=False, encoding=None,
                  lines_on_start=None, max_between_data=None, format=None,
-                 parser=None, order_ptrn=None, reverse_order=False, max_read_buffer=None):
+                 parser=None, order_ptrn=None, reverse_order=False,
+                 max_read_buffer=None):
 
         self.fsender = self.kclient = None
         self.ksent_seqn = self.ksent_shid = None
@@ -176,7 +180,8 @@ class FileTailer(object):
         tstc = type(stream_cfg)
         if tstc == FluentCfg:
             host, port = stream_cfg
-            self.fsender = FluentSender(tag, host, port, max_send_fail=max_send_fail)
+            self.fsender = FluentSender(tag, host, port,
+                                        max_send_fail=max_send_fail)
         elif tstc == KinesisCfg:
             stream_name, region, access_key, secret_key = stream_cfg
             self.kstream_name = stream_name
@@ -609,26 +614,28 @@ class FileTailer(object):
             self.parser.set_file_path(file_path)
 
         for line in lines.splitlines():
-            if len(line) > 0:
-                parsed = None
-                if self.format:
-                    parsed = self.convert_msg(line)
-                    if not parsed:
-                        self.lwarning("can't convert '{}'".format(line))
-                elif self.parser:
-                    if self.parser.parse_line(line):
-                        if self.parser.completed > self.parser_compl:
-                            parsed = self.parser.parsed
-                            self.parser_compl = self.parser.completed
-                    else:
-                        self.lwarning("can't parse '{}'".format(line))
-                else:
-                    self.lwarning("no format / parser exists. send raw "
-                                  "message")
-                    yield line
+            if len(line) == 0:
+                continue
 
-                if parsed:
-                    yield self.attach_msg_extra(parsed)
+            parsed = None
+            if self.format:
+                parsed = self.convert_msg(line)
+                if not parsed:
+                    self.lwarning("can't convert '{}'".format(line))
+            elif self.parser:
+                if self.parser.parse_line(line):
+                    if self.parser.completed > self.parser_compl:
+                        parsed = self.parser.parsed
+                        self.parser_compl = self.parser.completed
+                else:
+                    self.lwarning("can't parse '{}'".format(line))
+            else:
+                self.lwarning("no format / parser exists. send raw "
+                              "message")
+                yield line
+
+            if parsed:
+                yield self.attach_msg_extra(parsed)
 
     def _send_newline(self, msg, msgs):
         self.ldebug("_send_newline {}".format(msg))
@@ -649,7 +656,8 @@ class FileTailer(object):
         self.kpk_cnt += 1  # round robin shards
         for aggd in self._iter_kinesis_aggrec(msgs):
             pk, ehk, data = aggd.get_contents()
-            self.linfo("  kinesis aggregated put_record: {} bytes".format(len(data)))
+            self.linfo("  kinesis aggregated put_record: {} "
+                       "bytes".format(len(data)))
             st = time.time()
             ret = self.kclient.put_record(
                 StreamName=self.kstream_name,
@@ -665,10 +673,10 @@ class FileTailer(object):
             elp = time.time() - st
             if stat == 200:
                 self.linfo("Kinesis put success in {}: ShardId: {}, "
-                            "SequenceNumber: {}".format(elp, shid, seqn))
+                           "SequenceNumber: {}".format(elp, shid, seqn))
             else:
                 self.error("Kineis put failed in {}!: "
-                        "{}".format(elp, ret['ResponseMetadata']))
+                           "{}".format(elp, ret['ResponseMetadata']))
 
     def _iter_kinesis_aggrec(self, msgs):
         for msg in msgs:
