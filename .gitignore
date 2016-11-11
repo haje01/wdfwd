@@ -18,4 +18,5 @@ real_env.bat
 test_env.bat
 wlog_test.py
 tail_kinesis.py
-
+wdfwd/tests/cfg*.yml
+*.swo
