@@ -54,6 +54,8 @@ def teardown_module(mod):
 
 def test_basic():
     # check cfg
+    cfg_path = os.path.join(BASE_DIR, 'tests', 'cfg_service.yml')
+    os.environ['WDFWD_CFG'] = cfg_path
     cfg = get_config()
     appc = cfg['app']
     assert appc['service']['name'] == 'WDFwdTest'

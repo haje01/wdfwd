@@ -2,11 +2,13 @@ import os
 from datetime import datetime
 
 from wdfwd.get_config import get_config
-from wdfwd.const import TABLE_INFO_FILE
+from wdfwd.const import TABLE_INFO_FILE, BASE_DIR
 from wdfwd import dump
 from wdfwd.tests import write_eloa_cfg
 from wdfwd.dump import db
 
+cfg_path = os.path.join(BASE_DIR, 'tests', 'cfg_dump.yml')
+os.environ['WDFWD_CFG'] = cfg_path
 cfg = get_config()
 acfg = cfg['app']
 dcfg = None

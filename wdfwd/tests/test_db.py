@@ -1,12 +1,16 @@
+import os
 from datetime import datetime
 
 import pytest
 
+from wdfwd.const import BASE_DIR
 from wdfwd.dump import db
 from wdfwd.get_config import get_config
 from wdfwd.tests import write_eloa_cfg
 
 
+cfg_path = os.path.join(BASE_DIR, 'tests', 'cfg_db.yml')
+os.environ['WDFWD_CFG'] = cfg_path
 cfg = get_config()
 if 'tasks' in cfg:
     for task in cfg['tasks']:

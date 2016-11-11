@@ -9,7 +9,7 @@ from wdfwd.const import BASE_DIR
 from wdfwd.get_config import get_config
 from wdfwd.tail import FileTailer, NoTargetFile, TailThread, get_file_lineinfo,\
     FluentCfg, KinesisCfg, MAX_READ_BUF
-from wdfwd.util import InvalidLogFormat, KN_TEST_STREAM, iter_kinesis_records
+from wdfwd.util import InvalidLogFormat, KN_TEST_STREAM
 
 # set config for this test
 cfg_path = os.path.join(BASE_DIR, 'tests', 'cfg_tail.yml')
@@ -19,9 +19,9 @@ cfg = get_config()
 tcfg = cfg.get('tailing')
 pos_dir = tcfg.get('pos_dir')
 fluent = tcfg['to']['fluent']
-fluent_ip = os.environ.get('WDFWD_TEST_FLUENT_IP')
-fluent_port = int(os.environ.get('WDFWD_TEST_FLUENT_PORT', 0))
-fcfg = FluentCfg(fluent_ip, fluent_port)
+# fluent_ip = os.environ.get('WDFWD_TEST_FLUENT_IP')
+# fluent_port = int(os.environ.get('WDFWD_TEST_FLUENT_PORT', 0))
+fcfg = FluentCfg(fluent[0], fluent[1])
 
 
 @pytest.fixture(scope='function')
@@ -97,8 +97,6 @@ def test_tail_init():
     assert tcfg is not None
     assert pos_dir is not None
     assert fluent is not None
-    assert fluent_ip is not None
-    assert fluent_port != 0
 
 
 def test_tail_file_basic(rmlogs, ftail):
@@ -162,8 +160,8 @@ def test_tail_file_kinesis(rmlogs, ktail):
     assert ktail.get_sent_pos() == 0
     assert ktail.may_send_newlines() == 1
     knc = ktail.kclient
-    #for rec in iter_kinesis_records(knc, ktail.ksent_shid, ktail.ksent_seqn):
-        #assert 'ts_' in rec
+    # for rec in iter_kinesis_records(knc, ktail.ksent_shid, ktail.ksent_seqn):
+    #   assert 'ts_' in rec
 
     with open(path, 'a') as f:
         f.write('2\n')

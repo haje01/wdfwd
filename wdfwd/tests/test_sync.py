@@ -3,11 +3,14 @@ from subprocess import CalledProcessError
 
 import pytest
 
+from wdfwd.const import BASE_DIR
 from wdfwd.get_config import get_config
 from wdfwd.util import cap_call, _cap_call
 from wdfwd.sync import sync_folder, find_file_by_ptrn, sync_files, sync_file
 
 
+cfg_path = os.path.join(BASE_DIR, 'tests', 'cfg_sync.yml')
+os.environ['WDFWD_CFG'] = cfg_path
 cfg = get_config()
 acfg = cfg['app']
 rsync_path = acfg['rsync_path'] if 'rsync_path' in acfg else None
