@@ -5,11 +5,15 @@ import shutil
 
 import pytest
 
+from wdfwd.const import BASE_DIR
 from wdfwd.get_config import get_config
 from wdfwd.tail import FileTailer, NoTargetFile, TailThread, get_file_lineinfo,\
     FluentCfg, KinesisCfg, MAX_READ_BUF
 from wdfwd.util import InvalidLogFormat, KN_TEST_STREAM, iter_kinesis_records
 
+# set config for this test
+cfg_path = os.path.join(BASE_DIR, 'tests', 'cfg_tail.yml')
+os.environ['WDFWD_CFG'] = cfg_path
 cfg = get_config()
 
 tcfg = cfg.get('tailing')

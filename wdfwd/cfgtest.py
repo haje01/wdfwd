@@ -21,7 +21,8 @@ def cli():
 @click.option('--cfg_path', help="Forwarder config file path.")
 @click.option('--cfile_idx', default=0, help="Tailing config file index.")
 @click.option('--errors-only', is_flag=True, help="Show errors only.")
-def parser(file_path, cfg_path, cfile_idx, errors_only):
+@click.option('--cont-error', is_flag=True, help="Continue parsing with error.")
+def parser(file_path, cfg_path, cfile_idx, errors_only, cont_error):
     if not cfg_path:
         assert CONFIG_NAME in os.environ
         cfg_path = os.environ[CONFIG_NAME]
@@ -45,15 +46,20 @@ def parser(file_path, cfg_path, cfile_idx, errors_only):
     n_succ = 0
     with open(file_path, 'rt') as f:
         prev_compl = 0
-        for line in f:
+        for lno, line in enumerate(f):
             if len(line.strip()) == 0:
                 continue
-            parsed = parser.parse_line(line)
-            if not parsed:
-                print "Parsing failed! : '{}'".format(line)
-                if not errors_only:
+            try:
+                parsed = parser.parse_line(line)
+            except Exception, e:
+                print "Exception occurred!: {}".format(str(e))
+                if not cont_error:
                     sys.exit(-1)
-                sys.exit(-1)
+
+            if not parsed:
+                print "Parsing failed!({}) : '{}'".format(lno, line)
+                if not cont_error:
+                    sys.exit(-1)
             else:
                 if parser.completed <= prev_compl:
                     continue
