@@ -77,8 +77,8 @@ def dtail():
 
 def _dtail():
     dinfo = tcfg['db']
-    bdir = finfo['dir']
-    tag = finfo['tag']
+    bdir = dinfo['dir']
+    tag = dinfo['tag']
     tail = FileTailer(bdir, ptrn, tag, pos_dir, fcfg,
                       send_term=0, update_term=0, echo=True,
                       max_between_data=100 * 100)
