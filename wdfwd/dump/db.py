@@ -241,11 +241,11 @@ def execute(con, cmd):
 
 
 def table_array(con, prefix):
+    """Return table name array by matching prefix."""
     # wild schema for table select
     if not con.sys_schema:
         prefix = '%' + prefix.split('.')[-1]
     ldebug('table_array')
-    """Return table name array by matching prefix."""
     cmd = "SELECT NAME FROM SYS.TABLES WHERE NAME"\
           " LIKE '%s%%'" % prefix
     execute(con, cmd)

@@ -1,5 +1,8 @@
+# -*- coding: utf8 -*-
+
 from __future__ import print_function
 import os
+import sys
 import glob
 import time
 import threading
@@ -11,6 +14,7 @@ import json
 import uuid
 import msgpack
 from collections import namedtuple
+from datetime import datetime
 
 import win32file
 import pywintypes
@@ -36,8 +40,9 @@ FluentCfg = namedtuple('FluentCfg', ['host', 'port'])
 KinesisCfg = namedtuple('KinesisCfg', ['stream_name', 'region', 'access_key',
                                        'secret_key'])
 
+TABLE_DEFAULT_DATE = datetime(1970, 1, 1, 0, 0, 0)
 
-class NoTargetFile(Exception):
+class NoTarget(Exception):
     pass
 
 
@@ -46,6 +51,7 @@ class LatestFileChanged(Exception):
 
 
 class TailThread(threading.Thread):
+
     def __init__(self, name, tailer):
         threading.Thread.__init__(self)
         self.name = name
@@ -83,9 +89,9 @@ class TailThread(threading.Thread):
 
                 if self._exit:
                     break
-            except NoTargetFile:
-                self.lwarning("run", "NoTargetfile")
-            except Exception, e:
+            except NoTarget:
+                self.lwarning("run", "NoTarget")
+            except Exception as e:
                 self.linfo("run", str(e))
                 tb = traceback.format_exc()
                 for line in tb.splitlines():
@@ -133,7 +139,7 @@ def _log(tail, level, tabfunc, _msg):
         return
 
     lfun = getattr(logging, level)
-    if type(tabfunc) == int:
+    if isinstance(tabfunc, int):
         msg = "  " * tabfunc + "{}".format(_msg)
     elif len(_msg) > 0:
         msg = "{} - {}".format(tabfunc, _msg)
@@ -146,39 +152,50 @@ def _log(tail, level, tabfunc, _msg):
         try:
             tail.fsender.emit_with_time("{}".format(level), ts, {"message":
                                                                  msg})
-        except Exception, e:
+        except Exception as e:
             logging.warning("_log", "send fail '{}'".format(e))
 
 
-
 class BaseTailer(object):
-    def __init__(self, bdir, ptrn, tag, pdir,
-                 stream_cfg,
-                 send_term=SEND_TERM, update_term=UPDATE_TERM,
-                 max_send_fail=None, elatest=None, echo=False, encoding=None,
-                 lines_on_start=None, max_between_data=None, format=None,
-                 parser=None, order_ptrn=None, reverse_order=False,
-                 max_read_buffer=None):
 
+    def __init__(self, tag, pdir, stream_cfg, send_term, update_term,
+                 max_send_fail, echo, encoding, lines_on_start,
+                 max_between_data):
+        """
+            Trailer common class initialization
+
+            Args:
+                tag: Classification tag for Fluentd
+                pdir: Position file directory
+                stream_cfg: Log streaming service config (Fluentd / Kinesis)
+                strem_cfg: Log transmission time interval
+                update_term: Time interval to check if log source has changed
+                max_send_fail: Maximum number of retries in case of transmission
+                    failure
+                echo: Whether to save sent messages
+                encoding: Original message encoding
+                lines_on_start: How many lines of existing log will be resent at
+                    startup (for debugging)
+                max_between_data: When the service is restarted, unsent logs
+                    smaller than this amount are sent.
+        """
+        super(BaseTailer, self).__init__()
         self.fsender = self.kclient = None
         self.ksent_seqn = self.ksent_shid = None
         self.linfo("__init__", "max_send_fail: '{}'".format(max_send_fail))
-        self.bdir = bdir
-        self.ptrn = ptrn
         self.sname = socket.gethostname()
         self.saddr = socket.gethostbyname(self.sname)
         tag = "{}.{}".format(self.sname.lower(), tag)
         self.linfo(1, "tag: '{}'".format(tag))
         self.tag = tag
-        self.target_path = self.target_fid = None
         self.send_term = send_term
         self.last_send_try = 0
         self.update_term = update_term
         self.last_update = 0
         self.kpk_cnt = 0  # count for kinesis partition key
-        self.reverse_order = reverse_order
-        max_send_fail = max_send_fail if max_send_fail else MAX_SEND_FAIL
+        self.pdir = pdir
 
+        max_send_fail = max_send_fail if max_send_fail else MAX_SEND_FAIL
         tstc = type(stream_cfg)
         if tstc == FluentCfg:
             host, port = stream_cfg
@@ -192,39 +209,13 @@ class BaseTailer(object):
                                             secret_key)
             self.kagg = aggregator.RecordAggregator()
 
-        # AWS Kinesis
-        self.pdir = pdir
         self.send_retry = 0
-        self.elatest = elatest
         self.echo_file = StringIO() if echo else None
-        self.elatest_fid = None
         self.cache_sent_pos = {}
         self.encoding = encoding
         self.lines_on_start = lines_on_start if lines_on_start else 0
         self.max_between_data = max_between_data if max_between_data else\
             MAX_BETWEEN_DATA
-        self.max_read_buffer = max_read_buffer if max_read_buffer else\
-            MAX_READ_BUF
-        self._reset_ml_msg()
-        self.linfo("effective format: '{}'".format(format))
-        self.format = self.validate_format(format)
-        self.fmt_body = self.format_body_type(format)
-        self.parser = parser
-        self.pending_mlmsg = None
-        self.order_ptrn = self.validate_order_ptrn(order_ptrn)
-        self.parser_compl = 0
-        self.no_format = False
-
-    def format_body_type(self, format):
-        if format:
-            if '_json_' in format:
-                return FMT_JSON_BODY
-            elif '_text_' in format:
-                return FMT_TEXT_BODY
-        return FMT_NO_BODY
-
-    def _reset_ml_msg(self):
-        self.ml_msg = dict(message=[])
 
     def ldebug(self, tabfunc, msg=""):
         _log(self, 'debug', tabfunc, msg)
@@ -238,9 +229,181 @@ class BaseTailer(object):
     def lerror(self, tabfunc, msg=""):
         _log(self, 'error', tabfunc, msg)
 
+    def tmain(self):
+        cur = time.time()
+        self.ldebug("tmain {}".format(cur))
+        return cur
+
+    def read_sent_pos(self, target):
+        """Update the sent position of the target so far.
+
+        Arguments:
+            target: file path for FileTailer, table name for DBTailer
+        """
+        self.linfo("read_sent_pos", "updating for '{}'..".format(target))
+        tname = escape_path(target)
+        ppath = os.path.join(self.pdir, tname + '.pos')
+        pos = self.get_initial_pos()
+        if os.path.isfile(ppath):
+            with open(ppath, 'r') as f:
+                line = f.readline()
+                elm = line.split(',')
+                pos = self.parse_sent_pos(elm[0])
+            self.linfo(1, "found pos file - {}: {}".format(ppath, pos))
+        else:
+            self.linfo(1, "can't find pos file for {}, save as "
+                          "0".format(target))
+            self._save_sent_pos(target, self.get_initial_pos())
+        return pos
+
+    def _save_sent_pos(self, target, pos):
+        """Save sent position to flie"""
+        self.linfo(1, "_save_sent_pos for {} - {}".format(target, pos))
+        tname = escape_path(target)
+        path = os.path.join(self.pdir, tname + '.pos')
+        try:
+            with open(path, 'w') as f:
+                f.write("{}\n".format(pos))
+        except Exception as e:
+            self.lerror("Fail to write pos file: {} {}".format(e, path))
+        self.cache_sent_pos[target] = pos
+
+
+class TableTailer(BaseTailer):
+
+    def __init__(self, table, tag, pdir, stream_cfg, send_term=SEND_TERM,
+                 update_term=UPDATE_TERM, max_send_fail=None, echo=False,
+                 encoding=None, lines_on_start=None, max_between_data=None,
+                 datefmt=None, millisec_ndigit=None):
+        """init TableTailer"""
+        super(TableTailer, self).__init__(tag, pdir, stream_cfg, send_term,
+                                          update_term, max_send_fail, echo,
+                                          encoding, lines_on_start,
+                                          max_between_data)
+        self.table = table
+        self.datefmt = datefmt
+        self.millisec_ndigit = millisec_ndigit
+
+    def is_table_exist(self, con):
+        tbl = self.table
+        self.ldebug("is_table_exist for {}".format(tbl))
+        if not con.sys_schema:
+            tbl = tbl.split('.')[-1]
+        cmd = "SELECT NAME FROM SYS.TABLES WHERE NAME"\
+              " LIKE '{}'".format(tbl)
+        self.ldebug("cmd: " + cmd)
+        db_execute(con, cmd)
+        rv = con.cursor.fetchall()
+        return len(rv) > 0
+
+    def tmain(self):
+        cur = super(TableTailer, self).tmain()
+
+        with DBConnect(cfg) as con:
+            if self.check_table(con):
+                return
+
+            sent_line = self._may_send_newlines(con, cur)
+
+        return sent_line
+
+    def check_table(self):
+        """Check existence of table
+        """
+        if not self.is_table_exist():
+            return False
+
+    def get_sent_pos(self):
+        """Return the position that has been sent so far as a key type
+
+        Returns:
+            Sent position (key type)
+        """
+        return self.read_sent_pos(self.table)
+
+    def get_num_send_line(self, con):
+        """Get number of lines to send
+
+        Args:
+            con: Instance of DBConnect
+
+        Returns:
+            number of lines to send
+        """
+        self.raise_if_notarget()
+        return 100
+
+    def get_initial_pos(self):
+        dt = TABLE_DEFAULT_DATE.strftime(self.datefmt)
+        if '%f' in self.datefmt and self.millisec_ndigit is not None:
+            dt = dt[:-(6 - self.millisec_ndigit)]
+        return dt
+
+    def parse_sent_pos(self, pos):
+        """Parsing sent position (datetime)"""
+        return pos
+
+    def raise_if_notarget(self):
+        if self.table is None:
+            raise NoTarget()
+
+    def _may_send_newlines(self, con, cur):
+        """ Check if need to send data and send it if necessary.
+
+        Args:
+            con: Instance of DBConnector
+            cur: Current timestamp
+        """
+        self.ldebug("_tmain_may_send_newlines")
+        if cur - self.last_send_try >= self.send_term:
+            self.ldebug(1, "{} >= {}".format(cur - self.last_send_try,
+                                             self.send_term))
+            num_send = self.get_num_send_line(con)
+            self.last_send_try = cur
+        return 0
+
+
+class FileTailer(BaseTailer):
+
+    def __init__(self, bdir, ptrn, tag, pdir, stream_cfg,
+                 send_term=SEND_TERM, update_term=UPDATE_TERM,
+                 max_send_fail=None, elatest=None, echo=False, encoding=None,
+                 lines_on_start=None, max_between_data=None, format=None,
+                 parser=None, order_ptrn=None, reverse_order=False,
+                 max_read_buffer=None):
+
+        super(FileTailer, self).__init__(tag, pdir, stream_cfg, send_term,
+                                         update_term, max_send_fail, echo,
+                                         encoding, lines_on_start,
+                                         max_between_data)
+        self.bdir = bdir
+        self.ptrn = ptrn
+        self.target_path = self.target_fid = None
+        self.reverse_order = reverse_order
+
+        self.elatest = elatest
+        self.elatest_fid = None
+        self.max_read_buffer = max_read_buffer if max_read_buffer else\
+            MAX_READ_BUF
+        self.linfo("effective format: '{}'".format(format))
+        self.format = self.validate_format(format)
+        self.fmt_body = self.format_body_type(format)
+        self.parser = parser
+        self.order_ptrn = self.validate_order_ptrn(order_ptrn)
+        self.parser_compl = 0
+        self.no_format = False
+
+    def format_body_type(self, format):
+        if format:
+            if '_json_' in format:
+                return FMT_JSON_BODY
+            elif '_text_' in format:
+                return FMT_TEXT_BODY
+        return FMT_NO_BODY
+ 
     def raise_if_notarget(self):
         if self.target_path is None:
-            raise NoTargetFile()
+            raise NoTarget()
 
     def _tmain_may_update_target(self, cur):
         self.ldebug("_tmain_may_update_target")
@@ -258,7 +421,7 @@ class BaseTailer(object):
             try:
                 self.last_send_try = cur
                 scnt = self.may_send_newlines()
-            except pywintypes.error, e:
+            except pywintypes.error as e:
                 if e[0] == 2 and e[1] == 'CreateFile':
                     # file has been deleted
                     self.lerror("_run", "file '{}' might have been deleted. "
@@ -270,9 +433,12 @@ class BaseTailer(object):
                     netok = False
         return scnt, netok
 
+    def parse_sent_pos(self, pos):
+        """Parsing sent position (line no)"""
+        return int(pos)
+
     def tmain(self):
-        cur = time.time()
-        self.ldebug("tmain {}".format(cur))
+        cur = super(FileTailer, self).tmain()
 
         # send new lines when need
         sent_line = 0
@@ -285,7 +451,7 @@ class BaseTailer(object):
             try:
                 epath = os.path.join(self.bdir, self.elatest)
                 latest_rot = self.handle_elatest_rotation(epath, cur)
-            except pywintypes.error, e:
+            except pywintypes.error as e:
                 self.lerror("File '{}' open error - {}".format(epath, e))
                 self.lwarning("Skip to next turn")
                 return
@@ -353,9 +519,12 @@ class BaseTailer(object):
 
         if ret > 0:
             self.linfo(1, "reset target to delegate update_target")
-            self.save_sent_pos(0)
+            self.save_sent_pos(self.get_initial_pos())
             self.set_target(None)
         return ret
+
+    def get_initial_pos(self):
+        return 0
 
     def handle_elatest_rotation(self, epath=None, cur=None):
         cur = cur if cur else int(time.time())
@@ -391,7 +560,7 @@ class BaseTailer(object):
             # even elatest file not exist, there might be pos file
             self._save_sent_pos(pre_elatest, self.get_sent_pos(epath))
             # reset elatest sent_pos
-            self._save_sent_pos(epath, 0)
+            self._save_sent_pos(epath, self.get_initial_pos())
             self.last_update = cur
             # pre-elatest is target for now
             self.set_target(pre_elatest)
@@ -462,7 +631,7 @@ class BaseTailer(object):
             if start:
                 self.start_sent_pos(self.target_path)
             else:
-                self.update_sent_pos(self.target_path)
+                self.read_sent_pos(self.target_path)
         else:
             self.linfo(1, "cur target {}".format(self.target_path))
 
@@ -476,7 +645,7 @@ class BaseTailer(object):
         try:
             with OpenNoLock(tpath) as fh:
                 return win32file.GetFileSize(fh)
-        except pywintypes.error, e:
+        except pywintypes.error as e:
             err = e[2]
             if self.encoding:
                 err = err.decode(self.encoding).encode('utf8')
@@ -603,7 +772,7 @@ class BaseTailer(object):
         return scnt
 
     def attach_msg_extra(self, msg):
-        if type(msg) is dict:
+        if isinstance(msg, dict):
             msg['sname_'] = self.sname
             msg['saddr_'] = self.saddr
             return msg
@@ -683,7 +852,7 @@ class BaseTailer(object):
     def _iter_kinesis_aggrec(self, msgs):
         for msg in msgs:
             data = {'tag_': self.tag + '.data', 'ts_': msg[0]}
-            if type(msg[1]) == dict:
+            if isinstance(msg[1], dict):
                 data.update(msg[1])
             else:
                 data['value_'] = msg[1]
@@ -720,7 +889,7 @@ class BaseTailer(object):
                 elif self.kclient:
                     self._kinesis_put(msgs)
 
-        except Exception, e:
+        except Exception as e:
             self.lwarning(1, "send fail '{}'".format(e))
             self.send_retry += 1
             if self.send_retry < MAX_SEND_RETRY:
@@ -749,7 +918,7 @@ class BaseTailer(object):
         if tpath in self.cache_sent_pos:
             return self.cache_sent_pos[tpath]
 
-        pos = self.update_sent_pos(tpath)
+        pos = self.read_sent_pos(tpath)
         self.cache_sent_pos[tpath] = pos
         return pos
 
@@ -792,28 +961,6 @@ class BaseTailer(object):
 
         self._save_sent_pos(tpath, spos)
 
-    def update_sent_pos(self, tpath):
-        """
-            update sent pos for for new target
-        """
-        self.linfo("update_sent_pos", "updating for '{}'..".format(tpath))
-        # try to read position file
-        # which is needed to continue send after temporal restart
-        tname = escape_path(tpath)
-        ppath = os.path.join(self.pdir, tname + '.pos')
-        pos = 0
-        if os.path.isfile(ppath):
-            with open(ppath, 'r') as f:
-                line = f.readline()
-                elm = line.split(',')
-                pos = int(elm[0])
-            self.linfo(1, "found pos file - {}: {}".format(ppath, pos))
-        else:
-            self.linfo(1, "can't find pos file for {}, save as "
-                          "0".format(tpath))
-            self._save_sent_pos(tpath, 0)
-        return pos
-
     def save_sent_pos(self, pos):
         self.linfo("save_sent_pos")
         self.raise_if_notarget()
@@ -821,46 +968,12 @@ class BaseTailer(object):
         # save pos file
         self._save_sent_pos(self.target_path, pos)
 
-    def _save_sent_pos(self, tpath, pos):
-        self.linfo(1, "_save_sent_pos for {} - {}".format(tpath, pos))
-        tname = escape_path(tpath)
-        path = os.path.join(self.pdir, tname + '.pos')
-        try:
-            with open(path, 'w') as f:
-                f.write("{}\n".format(pos))
-        except Exception, e:
-            self.lerror("Fail to write pos file: {} {}".format(e, path))
-        self.cache_sent_pos[tpath] = pos
-
-
-class FileTailer(BaseTailer):
-    def __init__(self, bdir, ptrn, tag, pdir,
-                 stream_cfg,
-                 send_term=SEND_TERM, update_term=UPDATE_TERM,
-                 max_send_fail=None, elatest=None, echo=False, encoding=None,
-                 lines_on_start=None, max_between_data=None, format=None,
-                 parser=None, order_ptrn=None, reverse_order=False,
-                 max_read_buffer=None):
-        super(FileTailer, self).__init__(bdir=bdir, ptrn=ptrn, tag=tag,
-                                         pdir=pdir, stream_cfg=stream_cfg,
-                                         send_term=send_term,
-                                         update_term=update_term,
-                                         max_send_fail=max_send_fail,
-                                         elatest=elatest, echo=echo,
-                                         encoding=encoding,
-                                         lines_on_start=lines_on_start,
-                                         max_between_data=max_between_data,
-                                         format=format, parser=parser,
-                                         order_ptrn=order_ptrn,
-                                         reverse_order=reverse_order,
-                                         max_read_buffer=max_read_buffer)
-
 
 def db_execute(con, cmd):
     try:
         con.cursor.execute(cmd)
     except pyodbc.ProgrammingError as e:
-        lerror(str(e[1]))
+        sys.stderr.write(str(e[1]) + '\n')
         return False
     return True
 
