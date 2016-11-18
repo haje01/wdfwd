@@ -1,15 +1,14 @@
 import os
 from datetime import datetime, timedelta
 import glob
+import random
 
 import pytest
-
-from fluent.sender import MAX_SEND_FAIL
 
 from wdfwd.const import BASE_DIR
 from wdfwd.get_config import get_config
 from wdfwd.tail import DBConnector, db_execute, TableTailer, FluentCfg,\
-    SEND_TERM, DBConnector
+    SEND_TERM
 
 cfg_path = os.path.join(BASE_DIR, 'tests', 'cfg_dbtail.yml')
 os.environ['WDFWD_CFG'] = cfg_path
@@ -22,10 +21,11 @@ dcfg = tcfg['db']
 
 DATEFMT = dcfg['datefmt']
 MILLSEC_ND = dcfg['millisec_ndigit']
+DELIMITER = dcfg['delimiter']
 POS_DIR = tcfg['pos_dir']
 
 START_DATE = datetime(2016, 11, 7, 9, 30, 0)
-NUM_FILL_LINE = 100
+NUM_FILL_LINE = 10
 
 
 @pytest.fixture(scope='function')
@@ -38,6 +38,7 @@ def rmpos():
 def delete_previous(con, no):
     drop_table(con, no)
     rmpos()
+
 
 def drop_table(con, no):
     cmd = '''
@@ -73,15 +74,30 @@ select object_id('dbo.Log{0}', 'U')
     assert rv[0][0] is not None
 
 
-def fill_table(con, no):
+def fill_table(con, table_no, n_fill=NUM_FILL_LINE, start=0):
+    """Fill table with dummy logs.
+
+    Args:
+        con: Instance of DBConnector
+        table_no: Log table number
+        n_fill(optional): Number of log lines to fill. Defaults to
+            NUM_FILL_LINE
+        start(optional): Log index start value
+
+    Returns:
+        Next log index
+    """
     _cmd = '''
 insert into dbo.Log{0} values('{1}', {2});
     '''
-    for i in range(NUM_FILL_LINE):
-        dtime = START_DATE + timedelta(seconds=i)
-        cmd = _cmd.format(no, dtime, "'message {0}'".format(i))
+    for i in range(n_fill):
+        ms = int(random.random() * 1000000)
+        dtime = START_DATE + timedelta(seconds=i, microseconds=ms)
+        dtime = str(dtime)[:-3]
+        cmd = _cmd.format(table_no, dtime, "'message {0}'".format(start + i))
         db_execute(con, cmd)
     con.cursor.commit()
+    return start + n_fill
 
 
 @pytest.fixture(scope='module')
@@ -90,7 +106,8 @@ def init():
         delete_previous(con, 1)
         create_table(con, 1)
         check_table(con, 1)
-        fill_table(con, 1)
+        next_idx = fill_table(con, 1)
+        assert NUM_FILL_LINE == next_idx
 
 
 @pytest.fixture(scope='function')
@@ -100,18 +117,29 @@ def ttail():
 
 def _ttail():
     finfo = tcfg['from']
-    table = finfo[0]['table']['name']
+    ainfo = finfo[0]['table']
+    table = ainfo['name']
     tinfo = tcfg['to']
     fluent = tinfo['fluent']
     fcfg = FluentCfg(fluent[0], fluent[1])
-    tag = finfo[0]['table']['tag']
+    tag = ainfo['tag']
+    key_col = ainfo['key_col']
     enc = dcfg['encoding']
-    tail = TableTailer(table, tag, POS_DIR, fcfg, encoding=enc, 
-        datefmt=DATEFMT, millisec_ndigit=MILLSEC_ND)
+    tail = TableTailer(
+        table,
+        tag,
+        POS_DIR,
+        fcfg,
+        DATEFMT,
+        key_col,
+        delim=DELIMITER,
+        encoding=enc,
+        millisec_ndigit=MILLSEC_ND)
     return tail
 
 
-def test_dbtail_basic(init, ttail):
+def test_dbtail_units(init, ttail):
+    """Test basic units for db tailing"""
     assert ttail.table == 'Log1'
     assert ttail.tag.endswith('wdfwd.dbtail1')
     assert ttail.max_between_data > 0
@@ -125,5 +153,11 @@ def test_dbtail_basic(init, ttail):
 
     with DBConnector(tcfg) as con:
         assert ttail.is_table_exist(con)
-        assert '1970-01-01 00:00:00.000' == ttail.get_sent_pos()
-        assert NUM_FILL_LINE == ttail.get_num_send_line(con)
+        pos = ttail.get_sent_pos()
+        assert '1970-01-01 00:00:00.000' == pos
+        assert NUM_FILL_LINE == ttail.get_num_to_send(con, pos)
+        it_lines = ttail.select_lines_to_send(con, pos)
+        scnt = ttail.send_new_lines(con, it_lines)
+        assert NUM_FILL_LINE == scnt
+
+        # Add more logs
