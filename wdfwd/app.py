@@ -5,8 +5,9 @@ import traceback
 from croniter import croniter
 
 from wdfwd.get_config import get_config
-from wdfwd.tail import FileTailer, TailThread
-from wdfwd.util import ldebug, linfo, lerror, supress_boto3_log, iter_tail_info
+from wdfwd.tail import FileTailer, TableTailer, TailThread
+from wdfwd.util import ldebug, linfo, lerror, supress_boto3_log,\
+    iter_tail_info, TableTailInfo, FileTailInfo
 from wdfwd.sync import sync_file
 
 
@@ -28,7 +29,7 @@ fsender = None
 
 
 def start_tailing():
-    ldebug("start_tailing-")
+    ldebug("start_tailing")
     supress_boto3_log()
 
     if not tailc:
@@ -36,21 +37,41 @@ def start_tailing():
         return
 
     for i, ti in enumerate(iter_tail_info(tailc)):
-        ldebug("start file tail - bdir: '{}', ptrn: '{}', tag: '{}', "
-               "pos_dir: '{}', latest: '{}'".format(ti.bdir,
-                                                    ti.ptrn,
-                                                    ti.tag,
-                                                    ti.pos_dir,
-                                                    ti.latest))
+        if isinstance(ti, TableTailInfo):
+            ldebug("start table tail - {}".format(ti))
 
-        tailer = FileTailer(ti.bdir, ti.ptrn, ti.tag, ti.pos_dir, ti.scfg,
-                            send_term=ti.send_term, update_term=ti.update_term,
-                            elatest=ti.latest, encoding=ti.file_enc,
-                            lines_on_start=ti.lines_on_start,
-                            max_between_data=ti.max_between_data,
-                            format=ti.format, parser=ti.parser,
-                            order_ptrn=ti.order_ptrn,
-                            reverse_order=ti.reverse_order)
+            tailer = TableTailer(
+                tailc,
+                ti.table,
+                ti.tag,
+                ti.pos_dir,
+                ti.scfg,
+                ti.datefmt,
+                ti.key_col,
+                send_term=ti.send_term,
+                encoding=ti.encoding,
+                lines_on_start=ti.lines_on_start,
+                max_between_data=ti.max_between_data,
+                millisec_ndigit=ti.millisec_ndigit)
+        elif isinstance(ti, FileTailInfo):
+            ldebug("start file tail - {}".format(ti))
+
+            tailer = FileTailer(
+                ti.bdir,
+                ti.ptrn,
+                ti.tag,
+                ti.pos_dir,
+                ti.scfg,
+                send_term=ti.send_term,
+                update_term=ti.update_term,
+                elatest=ti.latest,
+                encoding=ti.file_enc,
+                lines_on_start=ti.lines_on_start,
+                max_between_data=ti.max_between_data,
+                format=ti.format,
+                parser=ti.parser,
+                order_ptrn=ti.order_ptrn,
+                reverse_order=ti.reverse_order)
 
         name = ti.tag
         ldebug("create & start {} thread".format(name))
@@ -68,7 +89,6 @@ def stop_tailing():
 
 def run_scheduled():
     """Run application main."""
-
     global next_dt, force_first_run
     if not next_dt:
         return
@@ -151,6 +171,7 @@ def _sync_file(scfg):
 
 def _run_tasks(tasks):
     ldebug('_run_tasks')
+
     for task in tasks:
         st = time.time()
         cmd = task.keys()[0]

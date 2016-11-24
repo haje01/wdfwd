@@ -1,5 +1,8 @@
+# -*- coding: utf8 -*-
+
 from __future__ import print_function
 import os
+import sys
 import glob
 import time
 import threading
@@ -11,6 +14,7 @@ import json
 import uuid
 import msgpack
 from collections import namedtuple
+from datetime import datetime
 
 import win32file
 import pywintypes
@@ -22,10 +26,13 @@ from wdfwd.util import OpenNoLock, get_fileid, escape_path, validate_format as\
     _validate_format, validate_order_ptrn as _validate_order_ptrn,\
     query_aws_client
 
+pyodbc.pooling = False
+
 MAX_READ_BUF = 1024 * 1024 * 2  # 2MB
 MAX_SEND_RETRY = 5
-SEND_TERM = 1       # 1 second
-UPDATE_TERM = 5     # 5 seconds
+DB_SEND_TERM = 60        # 60 seconds
+FILE_SEND_TERM = 1       # 1 second
+FILE_UPDATE_TERM = 5     # 5 seconds
 MAX_BETWEEN_DATA = 1024 * 1024
 FMT_NO_BODY = 0
 FMT_JSON_BODY = 1
@@ -36,8 +43,10 @@ FluentCfg = namedtuple('FluentCfg', ['host', 'port'])
 KinesisCfg = namedtuple('KinesisCfg', ['stream_name', 'region', 'access_key',
                                        'secret_key'])
 
+TABLE_DEFAULT_DATE = datetime(1970, 1, 1, 0, 0, 0)
 
-class NoTargetFile(Exception):
+
+class NoTarget(Exception):
     pass
 
 
@@ -46,6 +55,7 @@ class LatestFileChanged(Exception):
 
 
 class TailThread(threading.Thread):
+
     def __init__(self, name, tailer):
         threading.Thread.__init__(self)
         self.name = name
@@ -83,9 +93,9 @@ class TailThread(threading.Thread):
 
                 if self._exit:
                     break
-            except NoTargetFile:
-                self.lwarning("run", "NoTargetfile")
-            except Exception, e:
+            except NoTarget:
+                self.lwarning("run", "NoTarget")
+            except Exception as e:
                 self.linfo("run", str(e))
                 tb = traceback.format_exc()
                 for line in tb.splitlines():
@@ -133,7 +143,7 @@ def _log(tail, level, tabfunc, _msg):
         return
 
     lfun = getattr(logging, level)
-    if type(tabfunc) == int:
+    if isinstance(tabfunc, int):
         msg = "  " * tabfunc + "{}".format(_msg)
     elif len(_msg) > 0:
         msg = "{} - {}".format(tabfunc, _msg)
@@ -146,39 +156,47 @@ def _log(tail, level, tabfunc, _msg):
         try:
             tail.fsender.emit_with_time("{}".format(level), ts, {"message":
                                                                  msg})
-        except Exception, e:
-            logging.warning("_log", "send fail '{}'".format(e))
-
+        except Exception as e:
+            logging.warning("send fail '{}'".format(e))
 
 
 class BaseTailer(object):
-    def __init__(self, bdir, ptrn, tag, pdir,
-                 stream_cfg,
-                 send_term=SEND_TERM, update_term=UPDATE_TERM,
-                 max_send_fail=None, elatest=None, echo=False, encoding=None,
-                 lines_on_start=None, max_between_data=None, format=None,
-                 parser=None, order_ptrn=None, reverse_order=False,
-                 max_read_buffer=None):
+    def __init__(self, tag, pdir, stream_cfg, send_term,
+                 max_send_fail, echo, encoding, lines_on_start,
+                 max_between_data):
+        """
+        Trailer common class initialization
 
+        Args:
+            tag: Classification tag for Fluentd
+            pdir: Position file directory
+            stream_cfg: Log streaming service config (Fluentd / Kinesis)
+            strem_cfg: Log transmission time interval
+            max_send_fail: Maximum number of retries in case of transmission
+                failure
+            echo: Whether to save sent messages
+            encoding: Original message encoding
+            lines_on_start: How many lines of existing log will be resent
+                at startup (for debugging)
+            max_between_data: When the service is restarted, unsent logs
+                smaller than this amount are sent.
+        """
+        super(BaseTailer, self).__init__()
         self.fsender = self.kclient = None
         self.ksent_seqn = self.ksent_shid = None
         self.linfo("__init__", "max_send_fail: '{}'".format(max_send_fail))
-        self.bdir = bdir
-        self.ptrn = ptrn
         self.sname = socket.gethostname()
         self.saddr = socket.gethostbyname(self.sname)
         tag = "{}.{}".format(self.sname.lower(), tag)
         self.linfo(1, "tag: '{}'".format(tag))
         self.tag = tag
-        self.target_path = self.target_fid = None
         self.send_term = send_term
         self.last_send_try = 0
-        self.update_term = update_term
         self.last_update = 0
         self.kpk_cnt = 0  # count for kinesis partition key
-        self.reverse_order = reverse_order
-        max_send_fail = max_send_fail if max_send_fail else MAX_SEND_FAIL
+        self.pdir = pdir
 
+        max_send_fail = max_send_fail if max_send_fail else MAX_SEND_FAIL
         tstc = type(stream_cfg)
         if tstc == FluentCfg:
             host, port = stream_cfg
@@ -192,39 +210,13 @@ class BaseTailer(object):
                                             secret_key)
             self.kagg = aggregator.RecordAggregator()
 
-        # AWS Kinesis
-        self.pdir = pdir
         self.send_retry = 0
-        self.elatest = elatest
         self.echo_file = StringIO() if echo else None
-        self.elatest_fid = None
         self.cache_sent_pos = {}
         self.encoding = encoding
         self.lines_on_start = lines_on_start if lines_on_start else 0
         self.max_between_data = max_between_data if max_between_data else\
             MAX_BETWEEN_DATA
-        self.max_read_buffer = max_read_buffer if max_read_buffer else\
-            MAX_READ_BUF
-        self._reset_ml_msg()
-        self.linfo("effective format: '{}'".format(format))
-        self.format = self.validate_format(format)
-        self.fmt_body = self.format_body_type(format)
-        self.parser = parser
-        self.pending_mlmsg = None
-        self.order_ptrn = self.validate_order_ptrn(order_ptrn)
-        self.parser_compl = 0
-        self.no_format = False
-
-    def format_body_type(self, format):
-        if format:
-            if '_json_' in format:
-                return FMT_JSON_BODY
-            elif '_text_' in format:
-                return FMT_TEXT_BODY
-        return FMT_NO_BODY
-
-    def _reset_ml_msg(self):
-        self.ml_msg = dict(message=[])
 
     def ldebug(self, tabfunc, msg=""):
         _log(self, 'debug', tabfunc, msg)
@@ -238,9 +230,444 @@ class BaseTailer(object):
     def lerror(self, tabfunc, msg=""):
         _log(self, 'error', tabfunc, msg)
 
+    def tmain(self):
+        cur = time.time()
+        self.ldebug("tmain {}".format(cur))
+        return cur
+
+    def read_sent_pos(self, target):
+        """Update the sent position of the target so far.
+
+        Arguments:
+            target: file path for FileTailer, table name for DBTailer
+        """
+        self.linfo("read_sent_pos", "updating for '{}'..".format(target))
+        tname = escape_path(target)
+        ppath = os.path.join(self.pdir, tname + '.pos')
+        pos = self.get_initial_pos()
+        if os.path.isfile(ppath):
+            with open(ppath, 'r') as f:
+                line = f.readline()
+                elm = line.split(',')
+                pos = self.parse_sent_pos(elm[0])
+            self.linfo(1, "found pos file - {}: {}".format(ppath, pos))
+        else:
+            self.linfo(1, "can't find pos file for {}, save as "
+                          "initial value".format(target))
+            self._save_sent_pos(target, self.get_initial_pos())
+        return pos
+
+    def _save_sent_pos(self, target, pos):
+        """Save sent position for a target flie.
+
+        Args:
+            target: A target file for which position will be saved.
+            pos: Sent position to save.
+        """
+        self.linfo(1, "_save_sent_pos for {} - {}".format(target, pos))
+        tname = escape_path(target)
+        path = os.path.join(self.pdir, tname + '.pos')
+        try:
+            with open(path, 'w') as f:
+                f.write("{}\n".format(pos))
+        except Exception as e:
+            self.lerror("Fail to write pos file: {} {}".format(e, path))
+        self.cache_sent_pos[target] = pos
+
+    def _send_newline(self, msg, msgs):
+        """Send new lines
+
+        This does not send right away, but waits for a certain number of
+        messages to send for efficiency.
+
+        Args:
+            msg: A message to send
+            msgs: Message buffer
+        """
+        self.ldebug("_send_newline {}".format(msg))
+        ts = int(time.time())
+        self.may_echo(ts, msg)
+
+        msgs.append((ts, msg))
+        if len(msgs) >= BULK_SEND_SIZE:
+            if self.fsender:
+                bytes_ = self._make_fluent_bulk(msgs)
+                self.fsender._send(bytes_)
+            elif self.kclient:
+                self._kinesis_put(msgs)
+            msgs[:] = []
+
+    def _send_remain_msgs(self, msgs):
+        """Send bulk remain messages."""
+        if len(msgs) > 0:
+            if self.fsender:
+                bytes_ = self._make_fluent_bulk(msgs)
+                self.fsender._send(bytes_)
+            elif self.kclient:
+                self._kinesis_put(msgs)
+
+    def _handle_send_fail(self, e, rbytes):
+        """Handle send exception.
+
+        Args:
+            e: Exception instance
+            rbytes: Size of send message in bytes.
+
+        Raises:
+            Re-raise send exception
+        """
+        self.lwarning(1, "send fail '{}'".format(e))
+        self.send_retry += 1
+        if self.send_retry < MAX_SEND_RETRY:
+            self.lerror(1, "Not exceed max retry({} < {}), will try "
+                        "again".format(self.send_retry,
+                                       MAX_SEND_RETRY))
+            raise
+        else:
+            self.lerror(1, "Exceed max retry, Giving up this change({}"
+                        " Bytes)!!".format(rbytes))
+
+    def _make_fluent_bulk(self, msgs):
+        """Make bulk payload for fluentd"""
+        tag = '.'.join((self.tag, "data"))
+        bulk = [msgpack.packb((tag, ts, data)) for ts, data in msgs]
+        return ''.join(bulk)
+
+    def may_echo(self, ts, line):
+        if self.echo_file:
+            self.echo_file.write("{} {}\n".format(ts, line))
+            self.echo_file.flush()
+
+    def _kinesis_put(self, msgs):
+        """Send to AWS Kinesis
+
+        Make aggregated message and send it.
+
+        Args:
+            msgs: Messages to send
+        """
+        self.linfo('_kinesis_put {} messages'.format(len(msgs)))
+        self.kpk_cnt += 1  # round robin shards
+        for aggd in self._iter_kinesis_aggrec(msgs):
+            pk, ehk, data = aggd.get_contents()
+            self.linfo("  kinesis aggregated put_record: {} "
+                       "bytes".format(len(data)))
+            st = time.time()
+            ret = self.kclient.put_record(
+                StreamName=self.kstream_name,
+                Data=data,
+                PartitionKey=pk,
+                ExplicitHashKey=ehk
+            )
+            stat = ret['ResponseMetadata']['HTTPStatusCode']
+            shid = ret['ShardId']
+            seqn = ret['SequenceNumber']
+            self.ksent_seqn = seqn
+            self.ksent_shid = shid
+            elp = time.time() - st
+            if stat == 200:
+                self.linfo("Kinesis put success in {}: ShardId: {}, "
+                           "SequenceNumber: {}".format(elp, shid, seqn))
+            else:
+                self.error("Kineis put failed in {}!: "
+                           "{}".format(elp, ret['ResponseMetadata']))
+
+    def _iter_kinesis_aggrec(self, msgs):
+        for msg in msgs:
+            data = {'tag_': self.tag + '.data', 'ts_': msg[0]}
+            if isinstance(msg[1], dict):
+                data.update(msg[1])
+            else:
+                data['value_'] = msg[1]
+
+            pk = str(uuid.uuid4())
+            res = self.kagg.add_user_record(pk, str(data))
+            # if payload fits max send size, send it
+            if res:
+                yield self.kagg.clear_and_get()
+
+        # send remain payload
+        yield self.kagg.clear_and_get()
+
+
+class TableTailer(BaseTailer):
+
+    def __init__(self, dbcfg, table, tag, pdir, stream_cfg, datefmt, key_col,
+                 send_term=DB_SEND_TERM, max_send_fail=None, echo=False,
+                 encoding=None, lines_on_start=None, max_between_data=None,
+                 millisec_ndigit=None, delim='\t'):
+        """init TableTailer"""
+        super(TableTailer, self).__init__(tag, pdir, stream_cfg,
+                                          send_term,
+                                          max_send_fail, echo, encoding,
+                                          lines_on_start, max_between_data)
+        self.linfo(0, "TableTailer - init")
+        self.dbcfg = dbcfg
+        self.table = table
+        self.datefmt = datefmt
+        self.millisec_ndigit = millisec_ndigit
+        self.key_col = key_col
+        self.key_idx = None
+        self.delim = delim
+
+    def _get_key_idx(self, con):
+        """Return key column index within table.
+
+        Args:
+            con(DBConnector): DB connection
+
+        Returns:
+            int: Index of the column
+        """
+        assert self.key_col is not None
+        if self.key_idx is None:
+            self.key_idx = db_get_column_idx(con, self.table, self.key_col)
+        return self.key_idx
+
+    def update_target(self, start=False):
+        self.ldebug("dummy update_target - cur table '{}'".format(self.table))
+
+    def is_table_exist(self, con):
+        """Check table existence.
+
+        Args:
+            con(DBConnector): DB connection
+
+        Returns:
+            True if table exists, False otherwise.
+        """
+        tbl = self.table
+        if not con.sys_schema:
+            tbl = tbl.split('.')[-1]
+        cmd = "SELECT NAME FROM SYS.TABLES WHERE NAME"\
+              " LIKE '{}'".format(tbl)
+        db_execute(con, cmd)
+        rv = con.cursor.fetchall()
+        exist = len(rv) > 0
+        self.ldebug("is_table_exist for {} - {}".format(tbl, exist))
+        return exist
+
+    def tmain(self):
+        self.ldebug("tmain")
+        cur = super(TableTailer, self).tmain()
+
+        sent_line, _ = self.may_send_newlines(cur)
+        self.ldebug("tmain done")
+        return sent_line
+
+    def get_sent_pos(self):
+        """Return the position that has been sent so far as a key type
+
+        Returns:
+            Sent position (key type)
+        """
+        return self.read_sent_pos(self.table).strip()
+
+    def save_sent_pos(self, pos):
+        """Save sent position for current target.
+
+        Args:
+            pos: Position to be saved.
+        """
+        self._save_sent_pos(self.table, pos)
+
+    def get_num_to_send(self, con, pos):
+        """Get number of lines to send from position
+
+        Args:
+            con(DBConnector): DB connection
+            pos: Postion sent so far
+
+        Returns:
+            Number of lines to send
+        """
+        self.raise_if_notarget()
+        cmd = """
+            SELECT COUNT(*) FROM {0} WHERE {1} > '{2}'
+        """.format(self.table, self.key_col, pos)
+        db_execute(con, cmd)
+        rv = con.cursor.fetchall()
+        return rv[0][0]
+
+    def select_lines_to_send(self, con, pos):
+        """Select lines to send from position
+
+        Args:
+            con(DBConnector): DB connection
+            pos: Position sent so far
+
+        Returns:
+            Cursor to iterate results
+        """
+        self.ldebug("select_lines_to_send: pos {}".format(pos))
+        self.raise_if_notarget()
+        cmd = """
+            SELECT * FROM {0} WHERE {1} > '{2}'
+        """.format(self.table, self.key_col, pos)
+        db_execute(con, cmd)
+        return con.cursor
+
+    def _process_lines(self, con, it):
+        """Process selected lines before send to stream.
+
+        Args:
+            con(DBConnector): DB connection
+            it: Iterator to lines
+
+        Yields:
+            str: Processed line
+            str: Processed line key value
+        """
+        while True:
+            cols = next(it)
+            ki = self._get_key_idx(con)
+            kv = self.conv_datetime(cols[ki])
+            line = self.delim.join([str(c) for c in cols])
+            yield line, kv
+
+    def may_send_newlines(self, cur):
+        """Try to send new lines if time has passed.
+
+        Args:
+            cur: urrent time stamp.
+
+        Returns:
+            sent: Number of sent lines.
+            netok: True if sending causes no network problem.
+        """
+        self.ldebug("may_send_newlines")
+
+        if cur - self.last_send_try >= self.send_term:
+            self.ldebug(1, "{} >= {}".format(cur - self.last_send_try,
+                                             self.send_term))
+
+            self.last_send_try = cur
+            with DBConnector(self.dbcfg, self.ldebug, self.lerror) as con:
+                if not self.is_table_exist(con):
+                    self.lwarning("Target table '{}' not exists".format(
+                                  self.table))
+                    return None, None
+                return self._may_send_newlines(con)
+        return None, None
+
+    def _may_send_newlines(self, con):
+        scnt = 0
+        netok = True
+        try:
+            ppos = self.get_sent_pos()
+            it_lines = self.select_lines_to_send(con, ppos)
+            scnt, pos = self.send_new_lines(con, it_lines)
+            if scnt > 0:
+                self.save_sent_pos(pos)
+        except pywintypes.error as e:
+            self.lerror("send error", str(e))
+            netok = False
+        return scnt, netok
+
+    def send_new_lines(self, con, it):
+        """Send new lines to stream
+
+        Args:
+            con(DBConnector): DB connection
+            it: Iterator to lines
+
+        Returns:
+            int: Number of sent lines
+            str: Last key value
+        """
+        self.ldebug("send_new_lines")
+        scnt = 0
+        last_kv = None
+        try:
+            msgs = []
+            for msg, kv in self._process_lines(con, it):
+                if not msg:
+                    # skip bad form message (can't parse)
+                    self.linfo("skip bad form message")
+                    continue
+                self._send_newline(msg, msgs)
+                scnt += 1
+                last_kv = kv
+
+            self._send_remain_msgs(msgs)
+
+        except Exception as e:
+            self._handle_send_fail(e, None)
+
+        self.send_retry = 0
+        self.ldebug(1, "sent {} lines, last key value '{}'".format(scnt,
+                    last_kv))
+        return scnt, last_kv
+
+    def conv_datetime(self, dtime):
+        """Convert a datetime to adapted format string.
+
+        Args:
+            dtime(datetime): date time to convert.
+
+        Return:
+            str: converted string.
+        """
+        sdt = dtime.strftime(self.datefmt)
+        if '%f' in self.datefmt and self.millisec_ndigit is not None:
+            sdt = sdt[:-(6 - self.millisec_ndigit)]
+        return sdt
+
+    def get_initial_pos(self):
+        """Return default start position"""
+        return self.conv_datetime(TABLE_DEFAULT_DATE)
+
+    def parse_sent_pos(self, pos):
+        """Parsing sent position (datetime)"""
+        return pos
+
+    def raise_if_notarget(self):
+        if self.table is None:
+            raise NoTarget()
+
+
+class FileTailer(BaseTailer):
+
+    def __init__(self, bdir, ptrn, tag, pdir, stream_cfg,
+                 send_term=FILE_SEND_TERM, update_term=FILE_UPDATE_TERM,
+                 max_send_fail=None, elatest=None, echo=False, encoding=None,
+                 lines_on_start=None, max_between_data=None, format=None,
+                 parser=None, order_ptrn=None, reverse_order=False,
+                 max_read_buffer=None):
+
+        super(FileTailer, self).__init__(tag, pdir, stream_cfg, send_term,
+                                         max_send_fail, echo,
+                                         encoding, lines_on_start,
+                                         max_between_data)
+        self.bdir = bdir
+        self.ptrn = ptrn
+        self.update_term = update_term
+        self.target_path = self.target_fid = None
+        self.reverse_order = reverse_order
+
+        self.elatest = elatest
+        self.elatest_fid = None
+        self.max_read_buffer = max_read_buffer if max_read_buffer else\
+            MAX_READ_BUF
+        self.linfo("effective format: '{}'".format(format))
+        self.format = self.validate_format(format)
+        self.fmt_body = self.format_body_type(format)
+        self.parser = parser
+        self.order_ptrn = self.validate_order_ptrn(order_ptrn)
+        self.parser_compl = 0
+        self.no_format = False
+
+    def format_body_type(self, format):
+        if format:
+            if '_json_' in format:
+                return FMT_JSON_BODY
+            elif '_text_' in format:
+                return FMT_TEXT_BODY
+        return FMT_NO_BODY
+
     def raise_if_notarget(self):
         if self.target_path is None:
-            raise NoTargetFile()
+            raise NoTarget()
 
     def _tmain_may_update_target(self, cur):
         self.ldebug("_tmain_may_update_target")
@@ -258,7 +685,7 @@ class BaseTailer(object):
             try:
                 self.last_send_try = cur
                 scnt = self.may_send_newlines()
-            except pywintypes.error, e:
+            except pywintypes.error as e:
                 if e[0] == 2 and e[1] == 'CreateFile':
                     # file has been deleted
                     self.lerror("_run", "file '{}' might have been deleted. "
@@ -270,9 +697,12 @@ class BaseTailer(object):
                     netok = False
         return scnt, netok
 
+    def parse_sent_pos(self, pos):
+        """Parsing sent position (line no)"""
+        return int(pos)
+
     def tmain(self):
-        cur = time.time()
-        self.ldebug("tmain {}".format(cur))
+        cur = super(FileTailer, self).tmain()
 
         # send new lines when need
         sent_line = 0
@@ -285,7 +715,7 @@ class BaseTailer(object):
             try:
                 epath = os.path.join(self.bdir, self.elatest)
                 latest_rot = self.handle_elatest_rotation(epath, cur)
-            except pywintypes.error, e:
+            except pywintypes.error as e:
                 self.lerror("File '{}' open error - {}".format(epath, e))
                 self.lwarning("Skip to next turn")
                 return
@@ -353,9 +783,12 @@ class BaseTailer(object):
 
         if ret > 0:
             self.linfo(1, "reset target to delegate update_target")
-            self.save_sent_pos(0)
+            self.save_sent_pos(self.get_initial_pos())
             self.set_target(None)
         return ret
+
+    def get_initial_pos(self):
+        return 0
 
     def handle_elatest_rotation(self, epath=None, cur=None):
         cur = cur if cur else int(time.time())
@@ -391,7 +824,7 @@ class BaseTailer(object):
             # even elatest file not exist, there might be pos file
             self._save_sent_pos(pre_elatest, self.get_sent_pos(epath))
             # reset elatest sent_pos
-            self._save_sent_pos(epath, 0)
+            self._save_sent_pos(epath, self.get_initial_pos())
             self.last_update = cur
             # pre-elatest is target for now
             self.set_target(pre_elatest)
@@ -399,12 +832,12 @@ class BaseTailer(object):
         return False
 
     def get_sorted_target_files(self):
-        """
-            Returns sorted target files.
-            If elatest is in target files, remove it.
-            Default sort order is ascending alphanumerical order.
-            Oldest file appears first, and newest file supposed to be at the
-            end.
+        """Return sorted target files.
+
+        If elatest is in target files, remove it.
+        Default sort order is ascending alphanumerical order.
+        Oldest file appears first, and newest file supposed to be at the
+        end.
         """
         reverse = self.reverse_order
         self.linfo("get_sorted_target_files - reverse {}".format(reverse))
@@ -462,7 +895,7 @@ class BaseTailer(object):
             if start:
                 self.start_sent_pos(self.target_path)
             else:
-                self.update_sent_pos(self.target_path)
+                self.read_sent_pos(self.target_path)
         else:
             self.linfo(1, "cur target {}".format(self.target_path))
 
@@ -476,7 +909,7 @@ class BaseTailer(object):
         try:
             with OpenNoLock(tpath) as fh:
                 return win32file.GetFileSize(fh)
-        except pywintypes.error, e:
+        except pywintypes.error as e:
             err = e[2]
             if self.encoding:
                 err = err.decode(self.encoding).encode('utf8')
@@ -598,12 +1031,11 @@ class BaseTailer(object):
             scnt = self._may_send_newlines(lines, rbytes, scnt,
                                            file_path=self.target_path)
 
-        # save sent pos
         self.save_sent_pos(sent_pos + rbytes)
         return scnt
 
     def attach_msg_extra(self, msg):
-        if type(msg) is dict:
+        if isinstance(msg, dict):
             msg['sname_'] = self.sname
             msg['saddr_'] = self.saddr
             return msg
@@ -639,64 +1071,6 @@ class BaseTailer(object):
             if parsed:
                 yield self.attach_msg_extra(parsed)
 
-    def _send_newline(self, msg, msgs):
-        self.ldebug("_send_newline {}".format(msg))
-        ts = int(time.time())
-        self.may_echo(ts, msg)
-
-        msgs.append((ts, msg))
-        if len(msgs) >= BULK_SEND_SIZE:
-            if self.fsender:
-                bytes_ = self._make_fluent_bulk(msgs)
-                self.fsender._send(bytes_)
-            elif self.kclient:
-                self._kinesis_put(msgs)
-            msgs[:] = []
-
-    def _kinesis_put(self, msgs):
-        self.linfo('_kinesis_put {} messages'.format(len(msgs)))
-        self.kpk_cnt += 1  # round robin shards
-        for aggd in self._iter_kinesis_aggrec(msgs):
-            pk, ehk, data = aggd.get_contents()
-            self.linfo("  kinesis aggregated put_record: {} "
-                       "bytes".format(len(data)))
-            st = time.time()
-            ret = self.kclient.put_record(
-                StreamName=self.kstream_name,
-                Data=data,
-                PartitionKey=pk,
-                ExplicitHashKey=ehk
-            )
-            stat = ret['ResponseMetadata']['HTTPStatusCode']
-            shid = ret['ShardId']
-            seqn = ret['SequenceNumber']
-            self.ksent_seqn = seqn
-            self.ksent_shid = shid
-            elp = time.time() - st
-            if stat == 200:
-                self.linfo("Kinesis put success in {}: ShardId: {}, "
-                           "SequenceNumber: {}".format(elp, shid, seqn))
-            else:
-                self.error("Kineis put failed in {}!: "
-                           "{}".format(elp, ret['ResponseMetadata']))
-
-    def _iter_kinesis_aggrec(self, msgs):
-        for msg in msgs:
-            data = {'tag_': self.tag + '.data', 'ts_': msg[0]}
-            if type(msg[1]) == dict:
-                data.update(msg[1])
-            else:
-                data['value_'] = msg[1]
-
-            pk = str(uuid.uuid4())
-            res = self.kagg.add_user_record(pk, str(data))
-            # if payload fits max send size, send it
-            if res:
-                yield self.kagg.clear_and_get()
-
-        # send remain payload
-        yield self.kagg.clear_and_get()
-
     def _may_send_newlines(self, lines, rbytes=None, scnt=0, file_path=None):
         self.ldebug("_may_send_newlines", "sending {} bytes..".format(rbytes))
         if not rbytes:
@@ -712,51 +1086,24 @@ class BaseTailer(object):
                 self._send_newline(msg, msgs)
                 scnt += 1
 
-            # send remain bulk msgs
-            if len(msgs) > 0:
-                if self.fsender:
-                    bytes_ = self._make_fluent_bulk(msgs)
-                    self.fsender._send(bytes_)
-                elif self.kclient:
-                    self._kinesis_put(msgs)
+            self._send_remain_msgs(msgs)
+        except Exception as e:
+            self._handle_send_fail(e, rbytes)
 
-        except Exception, e:
-            self.lwarning(1, "send fail '{}'".format(e))
-            self.send_retry += 1
-            if self.send_retry < MAX_SEND_RETRY:
-                self.lerror(1, "Not exceed max retry({} < {}), will try "
-                            "again".format(self.send_retry,
-                                           MAX_SEND_RETRY))
-                raise
-            else:
-                self.lerror(1, "Exceed max retry, Giving up this change({}"
-                            " Bytes)!!".format(rbytes))
         self.send_retry = 0
         return scnt
-
-    def _make_fluent_bulk(self, msgs):
-        tag = '.'.join((self.tag, "data"))
-        bulk = [msgpack.packb((tag, ts, data)) for ts, data in msgs]
-        return ''.join(bulk)
-
-    def may_echo(self, ts, line):
-        if self.echo_file:
-            self.echo_file.write("{} {}\n".format(ts, line))
-            self.echo_file.flush()
 
     def get_sent_pos(self, epath=None):
         tpath = epath if epath else self.target_path
         if tpath in self.cache_sent_pos:
             return self.cache_sent_pos[tpath]
 
-        pos = self.update_sent_pos(tpath)
+        pos = self.read_sent_pos(tpath)
         self.cache_sent_pos[tpath] = pos
         return pos
 
     def start_sent_pos(self, tpath):
-        """
-          calculate sent pos for new service start
-        """
+        """Calculate sent pos for new service start"""
         self.ldebug("start_sent_pos", "for '{}'..".format(tpath))
         tname = escape_path(tpath)
         ppath = os.path.join(self.pdir, tname + '.pos')
@@ -792,77 +1139,45 @@ class BaseTailer(object):
 
         self._save_sent_pos(tpath, spos)
 
-    def update_sent_pos(self, tpath):
-        """
-            update sent pos for for new target
-        """
-        self.linfo("update_sent_pos", "updating for '{}'..".format(tpath))
-        # try to read position file
-        # which is needed to continue send after temporal restart
-        tname = escape_path(tpath)
-        ppath = os.path.join(self.pdir, tname + '.pos')
-        pos = 0
-        if os.path.isfile(ppath):
-            with open(ppath, 'r') as f:
-                line = f.readline()
-                elm = line.split(',')
-                pos = int(elm[0])
-            self.linfo(1, "found pos file - {}: {}".format(ppath, pos))
-        else:
-            self.linfo(1, "can't find pos file for {}, save as "
-                          "0".format(tpath))
-            self._save_sent_pos(tpath, 0)
-        return pos
-
     def save_sent_pos(self, pos):
+        """Save sent position for current target.
+
+        Args:
+            pos: Position to be saved.
+        """
         self.linfo("save_sent_pos")
         self.raise_if_notarget()
 
         # save pos file
         self._save_sent_pos(self.target_path, pos)
 
-    def _save_sent_pos(self, tpath, pos):
-        self.linfo(1, "_save_sent_pos for {} - {}".format(tpath, pos))
-        tname = escape_path(tpath)
-        path = os.path.join(self.pdir, tname + '.pos')
-        try:
-            with open(path, 'w') as f:
-                f.write("{}\n".format(pos))
-        except Exception, e:
-            self.lerror("Fail to write pos file: {} {}".format(e, path))
-        self.cache_sent_pos[tpath] = pos
-
-
-class FileTailer(BaseTailer):
-    def __init__(self, bdir, ptrn, tag, pdir,
-                 stream_cfg,
-                 send_term=SEND_TERM, update_term=UPDATE_TERM,
-                 max_send_fail=None, elatest=None, echo=False, encoding=None,
-                 lines_on_start=None, max_between_data=None, format=None,
-                 parser=None, order_ptrn=None, reverse_order=False,
-                 max_read_buffer=None):
-        super(FileTailer, self).__init__(bdir=bdir, ptrn=ptrn, tag=tag,
-                                         pdir=pdir, stream_cfg=stream_cfg,
-                                         send_term=send_term,
-                                         update_term=update_term,
-                                         max_send_fail=max_send_fail,
-                                         elatest=elatest, echo=echo,
-                                         encoding=encoding,
-                                         lines_on_start=lines_on_start,
-                                         max_between_data=max_between_data,
-                                         format=format, parser=parser,
-                                         order_ptrn=order_ptrn,
-                                         reverse_order=reverse_order,
-                                         max_read_buffer=max_read_buffer)
-
 
 def db_execute(con, cmd):
     try:
-        con.cursor.execute(cmd)
+        con.cursor.execute(cmd.strip())
     except pyodbc.ProgrammingError as e:
-        lerror(str(e[1]))
+        sys.stderr.write(str(e[1]) + '\n')
         return False
     return True
+
+
+def db_get_column_idx(con, table, column):
+    """Get column index from a table.
+
+    Args:
+        con(DBConnector): DB connection
+        table: Table name
+        column: Name of the column to find the index
+    Returns:
+        int: Index of the column
+    """
+    cmd = "SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='{}'"\
+          .format(table)
+    db_execute(con, cmd)
+    for i, cols in enumerate(con.cursor.fetchall()):
+        cname = cols[3]
+        if cname == column:
+            return i
 
 
 class DBConnector(object):
@@ -906,7 +1221,7 @@ WHERE Session_id = @@SPID"""
 
     def __enter__(self):
         global pyodbc
-        self.ldebug('db.Connector enter')
+        self.ldebug('DBConnector enter')
         acs = ''
         if self.trustcon:
             acs = 'Trusted_Connection=yes'
@@ -914,22 +1229,24 @@ WHERE Session_id = @@SPID"""
             acs = 'UID=%s;PWD=%s' % (self.uid, self.passwd)
         cs = "DRIVER=%s;Server=%s;Database=%s;%s;" % (self.driver, self.server,
                                                       self.database, acs)
+        st = time.time()
         try:
             conn = pyodbc.connect(cs)
         except pyodbc.Error as e:
             self.lerror(e[1])
             return
         else:
+            self.ldebug(1, "Connnected in {}".format(time.time() - st))
             self.conn = conn
             self.cursor = conn.cursor()
             self.cursor.execute("SET DATEFORMAT ymd")
             if self.read_uncommit:
-                self.ldebug("set read uncommited")
-                self.ldebug("  old isolation option:"
+                self.ldebug(1, "set read uncommited")
+                self.ldebug(2, "old isolation option:"
                             " {}".format(self.txn_iso_level))
                 cmd = "SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED"
                 self.cursor.execute(cmd)
-                self.ldebug("  new isolation option: "
+                self.ldebug(2, "new isolation option: "
                             "{}".format(self.txn_iso_level))
         return self
 

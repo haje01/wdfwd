@@ -7,7 +7,7 @@ import pytest
 
 from wdfwd.const import BASE_DIR
 from wdfwd.get_config import get_config
-from wdfwd.tail import FileTailer, NoTargetFile, TailThread, get_file_lineinfo,\
+from wdfwd.tail import FileTailer, NoTarget, TailThread, get_file_lineinfo,\
     FluentCfg, KinesisCfg, MAX_READ_BUF
 from wdfwd.util import InvalidLogFormat, KN_TEST_STREAM
 
@@ -19,8 +19,6 @@ cfg = get_config()
 tcfg = cfg.get('tailing')
 pos_dir = tcfg.get('pos_dir')
 fluent = tcfg['to']['fluent']
-# fluent_ip = os.environ.get('WDFWD_TEST_FLUENT_IP')
-# fluent_port = int(os.environ.get('WDFWD_TEST_FLUENT_PORT', 0))
 fcfg = FluentCfg(fluent[0], fluent[1])
 
 
@@ -100,9 +98,9 @@ def test_tail_init():
 
 
 def test_tail_file_basic(rmlogs, ftail):
-    with pytest.raises(NoTargetFile):
+    with pytest.raises(NoTarget):
         ftail.get_file_pos()
-    with pytest.raises(NoTargetFile):
+    with pytest.raises(NoTarget):
         ftail.may_send_newlines()
 
     path = os.path.join(ftail.bdir, 'tailtest_2016-03-30.log')

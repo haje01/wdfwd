@@ -99,7 +99,7 @@ class TableInfo(object):
         return self.name.split(*args, **kwargs)
 
     def build_columns(self, con):
-        """Returns columns from the table."""
+        """Return columns from the table."""
         if not con.sys_schema:
             tbname = self.name.split('.')[-1]
         ldebug('build_columns {}'.format(tbname))
@@ -130,7 +130,6 @@ class TableInfo(object):
 
 
 class TemporaryRemoveFirstRow(object):
-
     """temporary remove first row from a table."""
 
     def __init__(self, con, tbname):
@@ -241,11 +240,11 @@ def execute(con, cmd):
 
 
 def table_array(con, prefix):
+    """Return table name array by matching prefix."""
     # wild schema for table select
     if not con.sys_schema:
         prefix = '%' + prefix.split('.')[-1]
     ldebug('table_array')
-    """Return table name array by matching prefix."""
     cmd = "SELECT NAME FROM SYS.TABLES WHERE NAME"\
           " LIKE '%s%%'" % prefix
     execute(con, cmd)
@@ -259,7 +258,7 @@ def table_array(con, prefix):
 
 
 def table_rows(con, tbinfo, date=None, max_fetch=None):
-    """Returns all rows from the table."""
+    """Return all rows from the table."""
     ldebug('table_rows')
     if date is None:
         cmd = "SELECT {} FROM {}".format(tbinfo.str_cols, tbinfo)
