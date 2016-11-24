@@ -20,3 +20,4 @@ wlog_test.py
 tail_kinesis.py
 wdfwd/tests/cfg*.yml
 *.swo
+tmp*
