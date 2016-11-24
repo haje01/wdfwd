@@ -1,14 +1,14 @@
 import os
 from datetime import datetime, timedelta
 import glob
-import random
+import time
 
 import pytest
 
 from wdfwd.const import BASE_DIR
 from wdfwd.get_config import get_config
 from wdfwd.tail import DBConnector, db_execute, TableTailer, FluentCfg,\
-    SEND_TERM
+    SEND_TERM, db_get_column_idx
 
 cfg_path = os.path.join(BASE_DIR, 'tests', 'cfg_dbtail.yml')
 os.environ['WDFWD_CFG'] = cfg_path
@@ -91,8 +91,7 @@ def fill_table(con, table_no, n_fill=NUM_FILL_LINE, start=0):
 insert into dbo.Log{0} values('{1}', {2});
     '''
     for i in range(n_fill):
-        ms = int(random.random() * 1000000)
-        dtime = START_DATE + timedelta(seconds=i, microseconds=ms)
+        dtime = START_DATE + timedelta(seconds=start + i, microseconds=100000)
         dtime = str(dtime)[:-3]
         cmd = _cmd.format(table_no, dtime, "'message {0}'".format(start + i))
         db_execute(con, cmd)
@@ -126,6 +125,7 @@ def _ttail():
     key_col = ainfo['key_col']
     enc = dcfg['encoding']
     tail = TableTailer(
+        tcfg,
         table,
         tag,
         POS_DIR,
@@ -134,12 +134,18 @@ def _ttail():
         key_col,
         delim=DELIMITER,
         encoding=enc,
-        millisec_ndigit=MILLSEC_ND)
+        millisec_ndigit=MILLSEC_ND,
+        echo=True)
     return tail
 
 
+def test_dbtail_fill():
+    with DBConnector(tcfg) as con:
+        fill_table(con, 1, 5, 15)
+
+
 def test_dbtail_units(init, ttail):
-    """Test basic units for db tailing"""
+    """Test basic units of db tailing"""
     assert ttail.table == 'Log1'
     assert ttail.tag.endswith('wdfwd.dbtail1')
     assert ttail.max_between_data > 0
@@ -150,14 +156,38 @@ def test_dbtail_units(init, ttail):
     assert ttail.max_between_data > 0
     assert ttail.send_term == SEND_TERM
     assert ttail.encoding == 'UTF8'
+    assert ttail.key_col == 'dtime'
 
     with DBConnector(tcfg) as con:
         assert ttail.is_table_exist(con)
+        assert 0 == db_get_column_idx(con, 'Log1', 'dtime')
+        assert 1 == db_get_column_idx(con, 'Log1', 'message')
+        assert 0 == ttail._get_key_idx(con)
+
         pos = ttail.get_sent_pos()
         assert '1970-01-01 00:00:00.000' == pos
         assert NUM_FILL_LINE == ttail.get_num_to_send(con, pos)
         it_lines = ttail.select_lines_to_send(con, pos)
-        scnt = ttail.send_new_lines(con, it_lines)
+        scnt, last_kv = ttail.send_new_lines(con, it_lines)
         assert NUM_FILL_LINE == scnt
+        assert last_kv == "2016-11-07 09:30:09.100"
+        ttail.save_sent_pos(last_kv)
+        assert ttail.get_sent_pos() == "2016-11-07 09:30:09.100"
 
         # Add more logs
+        fill_table(con, 1, 5, 10)
+        # check and send message
+        t = time.time()
+        scnt, netok = ttail.may_send_newlines(con, t)
+        assert scnt == 5
+        assert netok
+
+        # Add more logs
+        fill_table(con, 1, 5, 15)
+        # check and send message
+        scnt, netok = ttail.may_send_newlines(con, t + 10)
+        assert scnt == 5
+        assert netok
+
+        assert len(ttail.echo_file.getvalue().splitlines()) == 20
+        assert ttail.get_sent_pos() == "2016-11-07 09:30:19.100"

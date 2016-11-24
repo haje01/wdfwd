@@ -21,3 +21,4 @@ tail_kinesis.py
 wdfwd/tests/cfg*.yml
 *.swo
 wdfwd.sublime-*
+tmp*

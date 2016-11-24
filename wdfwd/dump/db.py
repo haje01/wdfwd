@@ -3,14 +3,14 @@ import re
 from datetime import datetime
 
 import yaml
-import pyodbc  # NOQA
+# import pyodbc  # NOQA
 
 from wdfwd.util import get_dump_fname, normalize_date_str, ldebug, linfo,\
     lwarning, lerror
 from wdfwd.get_config import get_config
 from wdfwd.const import TABLE_INFO_FILE
 
-pyodbc.pooling = False
+# pyodbc.pooling = False
 
 conv_map = {}
 str_op = str
@@ -99,7 +99,7 @@ class TableInfo(object):
         return self.name.split(*args, **kwargs)
 
     def build_columns(self, con):
-        """Returns columns from the table."""
+        """Return columns from the table."""
         if not con.sys_schema:
             tbname = self.name.split('.')[-1]
         ldebug('build_columns {}'.format(tbname))
@@ -130,7 +130,6 @@ class TableInfo(object):
 
 
 class TemporaryRemoveFirstRow(object):
-
     """temporary remove first row from a table."""
 
     def __init__(self, con, tbname):
@@ -259,7 +258,7 @@ def table_array(con, prefix):
 
 
 def table_rows(con, tbinfo, date=None, max_fetch=None):
-    """Returns all rows from the table."""
+    """Return all rows from the table."""
     ldebug('table_rows')
     if date is None:
         cmd = "SELECT {} FROM {}".format(tbinfo.str_cols, tbinfo)

@@ -74,9 +74,7 @@ def log_head(msg):
 
 
 def safe_fname(fname):
-    """
-        Returns safe fname by eliminating chances of dir traversing
-    """
+    """Return safe fname by eliminating chances of dir traversing"""
     return fname.replace('../', '')
 
 
@@ -365,19 +363,22 @@ def _ravel_dict(results, data, sep, _prefix, root):
             results[key] = v
 
 
-TailInfo = namedtuple('TailInfo', ['bdir', 'ptrn', 'tag', 'pos_dir', 'scfg',
-                                   'send_term', 'update_term', 'latest',
-                                   'file_enc', 'lines_on_start',
-                                   'max_between_data', 'format', 'parser',
-                                   'order_ptrn', 'reverse_order',
-                                   'max_read_buffer'])
+FileTailInfo = namedtuple('FileTailInfo', [
+    'bdir', 'ptrn', 'tag', 'pos_dir', 'scfg', 'send_term', 'update_term',
+    'latest', 'file_enc', 'lines_on_start', 'max_between_data', 'format',
+    'parser', 'order_ptrn', 'reverse_order', 'max_read_buffer'
+])
+
+
+TableTailInfo = namedtuple('TableTailInfo', [
+    'table', 'tag', 'pos_dir', 'scfg', 'datefmt', 'key_col', 'send_term',
+    'update_term', 'encoding', 'lines_on_start', 'max_between_data',
+    'millisec_ndigit'])
 
 
 def iter_tail_info(tailc):
-    from wdfwd.parser import create_parser, merge_parser_cfg
     from wdfwd.tail import FluentCfg, KinesisCfg, UPDATE_TERM, SEND_TERM
 
-    file_enc = tailc.get('file_encoding')
     pos_dir = tailc.get('pos_dir')
     if not pos_dir:
         lerror("no position dir info. return")
@@ -386,27 +387,10 @@ def iter_tail_info(tailc):
 
     lines_on_start = tailc.get('lines_on_start')
     max_between_data = tailc.get('max_between_data')
-    max_read_buffer = tailc.get('max_read_buffer')
+
     afrom = tailc['from']
     fl_cfg = tailc['to'].get('fluent')
     kn_cfg = tailc['to'].get('kinesis')
-
-    gformat = tailc.get('format')
-    linfo("global log format: '{}'".format(gformat))
-    if gformat:
-        validate_format(ldebug, lerror, gformat)
-
-    gpcfg = tailc.get('parser')
-    linfo("global log parser '{}'".format(gpcfg))
-    gparser = create_parser(gpcfg, file_enc) if gpcfg else None
-
-    gorder_ptrn = tailc.get('order_ptrn')
-    ldebug("global order ptrn: '{}'".format(gorder_ptrn))
-    if gorder_ptrn:
-        validate_order_ptrn(ldebug, lerror, gorder_ptrn)
-
-    greverse_order = tailc.get('reverse_order')
-    ldebug("global reverse order : '{}'".format(greverse_order))
 
     # make stream cfg
     if not fl_cfg and not kn_cfg:
@@ -430,77 +414,152 @@ def iter_tail_info(tailc):
 
     for i, src in enumerate(afrom):
         cmd = src.keys()[0]
+
+        if cmd == 'table':
+            fromc = src['table']
+        elif cmd == 'flie':
+            fromc = src['file']
+
+        update_term = fromc.get('update_term', UPDATE_TERM)
+        send_term = fromc.get('send_term', SEND_TERM)
+
+        if cmd == 'table':
+            yield make_table_tail_info(tailc, fromc, pos_dir, scfg,
+                                       lines_on_start, max_between_data,
+                                       send_term, update_term)
         if cmd == 'file':
-            filec = src[cmd]
-            if filec:
-                bdir = filec.get('dir')
-                ptrn = filec.get('pattern')
-                ldebug("file pattern: '{}'".format(ptrn))
-                latest = filec.get('latest')
-                format = filec.get('format')
-                ldebug("file format: '{}'".format(format))
-                order_ptrn = filec.get('order_ptrn')
-                reverse_order = filec.get('reverse_order')
-                pcfg = filec.get('parser')
-                tag = filec.get('tag')
-                send_term = filec.get('send_term', SEND_TERM)
-                update_term = filec.get('update_term', UPDATE_TERM)
-            else:
-                bdir = ptrn = latest = format = order_ptrn = pcfg = tag =\
-                    send_term = update_term = reverse_order = None
+            yield make_file_tail_info(tailc, fromc, pos_dir, scfg,
+                                      lines_on_start, max_between_data,
+                                      send_term, update_term)
 
-            if pcfg:
-                if gpcfg:
-                    pcfg = merge_parser_cfg(gpcfg, pcfg)
-                parser = create_parser(pcfg, file_enc)
-                ldebug("file parser: '{}'".format(parser))
-            else:
-                parser = None
 
-            global_format = global_parser = False
-            if not format and gformat:
-                linfo("file format not exist. use global format instead")
-                format = gformat
-                global_format = True
+def make_table_tail_info(tailc, tablec, pos_dir, scfg, lines_on_start,
+                         max_between_data, send_term, update_term):
+    dbc = tailc['db']
+    encoding = dbc['encoding']
+    datefmt = dbc['datefmt']
+    millisec_ndigit = dbc.get('millisec_ndigit', 3)
 
-            if not parser and gparser:
-                linfo("parser not exist. use global parser instead")
-                parser = gparser
-                global_parser = True
+    table = tablec['name']
+    tag = tablec['tag']
+    key_col = tablec['key_col']
 
-            if not format and not parser:
-                lerror("Need format or parser. return")
-                return
+    tinfo = TableTailInfo(
+        table=table,
+        tag=tag,
+        pos_dir=pos_dir,
+        scfg=scfg,
+        datefmt=datefmt,
+        key_col=key_col,
+        send_term=send_term,
+        update_term=update_term,
+        encoding=encoding,
+        lines_on_start=lines_on_start,
+        max_between_data=max_between_data,
+        millisec_ndigit=millisec_ndigit)
+    return tinfo
 
-            if format and parser:
-                linfo("Both format & parser exist")
-                if global_parser and not global_format:
-                    linfo("  will use local format.")
-                    parser = None
-                elif global_format and not global_parser:
-                    linfo("  will use local parser.")
-                    format = None
-                else:
-                    linfo("  will use parser.")
-                    format = None
 
-            if order_ptrn is None and gorder_ptrn:
-                linfo("file order_ptrn not exist. use global order_ptrn "
-                      "instead")
-                order_ptrn = gorder_ptrn
+def make_file_tail_info(tailc, filec, pos_dir, scfg, lines_on_start,
+                        max_between_data, send_term, update_term):
+    from wdfwd.parser import create_parser, merge_parser_cfg
 
-            if reverse_order is None and greverse_order:
-                linfo("file reverse_order not exist. use global reverse_order "
-                      "instead")
-                reverse_order = greverse_order
+    max_read_buffer = tailc.get('max_read_buffer')
 
-            tinfo = TailInfo(bdir=bdir, ptrn=ptrn, tag=tag, pos_dir=pos_dir,
-                             scfg=scfg, send_term=send_term,
-                             update_term=update_term, latest=latest,
-                             file_enc=file_enc, lines_on_start=lines_on_start,
-                             max_between_data=max_between_data,
-                             max_read_buffer=max_read_buffer,
-                             format=format, parser=parser,
-                             order_ptrn=order_ptrn,
-                             reverse_order=reverse_order)
-            yield tinfo
+    file_enc = tailc.get('file_encoding')
+
+    gformat = tailc.get('format')
+    linfo("global log format: '{}'".format(gformat))
+    if gformat:
+        validate_format(ldebug, lerror, gformat)
+
+    gpcfg = tailc.get('parser')
+    linfo("global log parser '{}'".format(gpcfg))
+    gparser = create_parser(gpcfg, file_enc) if gpcfg else None
+
+    gorder_ptrn = tailc.get('order_ptrn')
+    ldebug("global order ptrn: '{}'".format(gorder_ptrn))
+    if gorder_ptrn:
+        validate_order_ptrn(ldebug, lerror, gorder_ptrn)
+
+    greverse_order = tailc.get('reverse_order')
+    ldebug("global reverse order : '{}'".format(greverse_order))
+
+    if filec:
+        bdir = filec.get('dir')
+        ptrn = filec.get('pattern')
+        ldebug("file pattern: '{}'".format(ptrn))
+        latest = filec.get('latest')
+        format = filec.get('format')
+        ldebug("file format: '{}'".format(format))
+        order_ptrn = filec.get('order_ptrn')
+        reverse_order = filec.get('reverse_order')
+        pcfg = filec.get('parser')
+        tag = filec.get('tag')
+    else:
+        bdir = ptrn = latest = format = order_ptrn = pcfg = tag =\
+            send_term = update_term = reverse_order = None
+
+    if pcfg:
+        if gpcfg:
+            pcfg = merge_parser_cfg(gpcfg, pcfg)
+        parser = create_parser(pcfg, file_enc)
+        ldebug("file parser: '{}'".format(parser))
+    else:
+        parser = None
+
+    global_format = global_parser = False
+    if not format and gformat:
+        linfo("file format not exist. use global format instead")
+        format = gformat
+        global_format = True
+
+    if not parser and gparser:
+        linfo("parser not exist. use global parser instead")
+        parser = gparser
+        global_parser = True
+
+    if not format and not parser:
+        lerror("Need format or parser. return")
+        return
+
+    if format and parser:
+        linfo("Both format & parser exist")
+        if global_parser and not global_format:
+            linfo("  will use local format.")
+            parser = None
+        elif global_format and not global_parser:
+            linfo("  will use local parser.")
+            format = None
+        else:
+            linfo("  will use parser.")
+            format = None
+
+    if order_ptrn is None and gorder_ptrn:
+        linfo("file order_ptrn not exist. use global order_ptrn "
+              "instead")
+        order_ptrn = gorder_ptrn
+
+    if reverse_order is None and greverse_order:
+        linfo("file reverse_order not exist. use global reverse_order "
+              "instead")
+        reverse_order = greverse_order
+
+    tinfo = FileTailInfo(
+        bdir=bdir,
+        ptrn=ptrn,
+        tag=tag,
+        pos_dir=pos_dir,
+        scfg=scfg,
+        send_term=send_term,
+        update_term=update_term,
+        latest=latest,
+        file_enc=file_enc,
+        lines_on_start=lines_on_start,
+        max_between_data=max_between_data,
+        max_read_buffer=max_read_buffer,
+        format=format,
+        parser=parser,
+        order_ptrn=order_ptrn,
+        reverse_order=reverse_order)
+    return tinfo

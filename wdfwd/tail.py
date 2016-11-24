@@ -20,7 +20,8 @@ import win32file
 import pywintypes
 from fluent.sender import FluentSender, MAX_SEND_FAIL
 from aws_kinesis_agg import aggregator
-import pyodbc  # NOQA
+# import pyodbc  # NOQA
+# pyodbc.pooling = False
 
 from wdfwd.util import OpenNoLock, get_fileid, escape_path, validate_format as\
     _validate_format, validate_order_ptrn as _validate_order_ptrn,\
@@ -252,12 +253,17 @@ class BaseTailer(object):
             self.linfo(1, "found pos file - {}: {}".format(ppath, pos))
         else:
             self.linfo(1, "can't find pos file for {}, save as "
-                          "0".format(target))
+                          "initial value".format(target))
             self._save_sent_pos(target, self.get_initial_pos())
         return pos
 
     def _save_sent_pos(self, target, pos):
-        """Save sent position to flie"""
+        """Save sent position for a target flie.
+
+        Args:
+            target: A target file for which position will be saved.
+            pos: Sent position to save.
+        """
         self.linfo(1, "_save_sent_pos for {} - {}".format(target, pos))
         tname = escape_path(target)
         path = os.path.join(self.pdir, tname + '.pos')
@@ -300,11 +306,12 @@ class BaseTailer(object):
             elif self.kclient:
                 self._kinesis_put(msgs)
 
-    def _handle_send_fail(self, e):
+    def _handle_send_fail(self, e, rbytes):
         """Handle send exception.
 
         Args:
             e: Exception instance
+            rbytes: Size of send message in bytes.
 
         Raises:
             Re-raise send exception
@@ -385,23 +392,51 @@ class BaseTailer(object):
 
 class TableTailer(BaseTailer):
 
-    def __init__(self, table, tag, pdir, stream_cfg, datefmt, key_col,
+    def __init__(self, dbcfg, table, tag, pdir, stream_cfg, datefmt, key_col,
                  send_term=SEND_TERM, update_term=UPDATE_TERM,
                  max_send_fail=None, echo=False, encoding=None,
                  lines_on_start=None, max_between_data=None,
                  millisec_ndigit=None, delim='\t'):
         """init TableTailer"""
-        super(TableTailer, self).__init__(tag, pdir, stream_cfg, send_term,
-                                          update_term, max_send_fail, echo,
-                                          encoding, lines_on_start,
-                                          max_between_data)
+        super(TableTailer, self).__init__(tag, pdir, stream_cfg,
+                                          send_term, update_term,
+                                          max_send_fail, echo, encoding,
+                                          lines_on_start, max_between_data)
+        self.linfo(0, "TableTailer - init")
+        self.dbcfg = dbcfg
         self.table = table
         self.datefmt = datefmt
         self.millisec_ndigit = millisec_ndigit
         self.key_col = key_col
+        self.key_idx = None
         self.delim = delim
 
+    def _get_key_idx(self, con):
+        """Return key column index within table.
+
+        Args:
+            con(DBConnector): DB connection
+
+        Returns:
+            int: Index of the column
+        """
+        assert self.key_col is not None
+        if self.key_idx is None:
+            self.key_idx = db_get_column_idx(con, self.table, self.key_col)
+        return self.key_idx
+
+    def update_target(self, start=False):
+        self.ldebug("dummy update_target - cur table '{}'".format(self.table))
+
     def is_table_exist(self, con):
+        """Check table existence.
+
+        Args:
+            con(DBConnector): DB connection
+
+        Returns:
+            True if table exists, False otherwise.
+        """
         tbl = self.table
         self.ldebug("is_table_exist for {}".format(tbl))
         if not con.sys_schema:
@@ -414,20 +449,20 @@ class TableTailer(BaseTailer):
         return len(rv) > 0
 
     def tmain(self):
+        self.ldebug("tmain")
         cur = super(TableTailer, self).tmain()
 
-        with DBConnect(cfg) as con:
-            if self.check_table(con):
-                return
+        sent_line = None
+        with DBConnector(self.dbcfg, self.ldebug, self.lerror) as con:
+            if not self.is_table_exist(con):
+                self.lwarning("Target table '{}' not exists".format(self.table)
+                              )
+                return None
 
-            sent_line = self._may_send_newlines(con, cur)
+            sent_line = self.may_send_newlines(con, cur)
 
+        self.ldebug("tmain - {}".format(sent_line))
         return sent_line
-
-    def check_table(self):
-        """Check existence of table"""
-        if not self.is_table_exist():
-            return False
 
     def get_sent_pos(self):
         """Return the position that has been sent so far as a key type
@@ -435,13 +470,21 @@ class TableTailer(BaseTailer):
         Returns:
             Sent position (key type)
         """
-        return self.read_sent_pos(self.table)
+        return self.read_sent_pos(self.table).strip()
+
+    def save_sent_pos(self, pos):
+        """Save sent position for current target.
+
+        Args:
+            pos: Position to be saved.
+        """
+        self._save_sent_pos(self.table, pos)
 
     def get_num_to_send(self, con, pos):
         """Get number of lines to send from position
 
         Args:
-            con: Instance of DBConnect
+            con(DBConnector): DB connection
             pos: Postion sent so far
 
         Returns:
@@ -459,7 +502,7 @@ class TableTailer(BaseTailer):
         """Select lines to send from position
 
         Args:
-            con: Instance of DBConnect
+            con(DBConnector): DB connection
             pos: Position sent so far
 
         Returns:
@@ -472,55 +515,102 @@ class TableTailer(BaseTailer):
         db_execute(con, cmd)
         return con.cursor
 
-    def _process_lines(self, it):
+    def _process_lines(self, con, it):
         """Process selected lines before send to stream.
 
         Args:
+            con(DBConnector): DB connection
             it: Iterator to lines
 
-        Returns:
-            Iterator to processed lines
+        Yields:
+            str: Processed line
+            str: Processed line key value
         """
         while True:
-            cols = it.next()
+            cols = next(it)
+            ki = self._get_key_idx(con)
+            kv = self.conv_datetime(cols[ki])
             line = self.delim.join([str(c) for c in cols])
-            yield line
+            yield line, kv
+
+    def may_send_newlines(self, con, cur):
+        """Try to send new lines if time has passed.
+
+        Args:
+            con(DBConnector): DB connection
+            cur: urrent time stamp.
+
+        Returns:
+            sent: Number of sent lines.
+            netok: True if sending causes no network problem.
+        """
+        self.ldebug("_tmain_may_send_newlines")
+        scnt = 0
+        netok = True
+        if cur - self.last_send_try >= self.send_term:
+            self.ldebug(1, "{} >= {}".format(cur - self.last_send_try,
+                                             self.send_term))
+            try:
+                self.last_send_try = cur
+                ppos = self.get_sent_pos()
+                it_lines = self.select_lines_to_send(con, ppos)
+                scnt, pos = self.send_new_lines(con, it_lines)
+                if scnt > 0:
+                    self.save_sent_pos(pos)
+            except pywintypes.error as e:
+                self.lerror("send error", str(e))
+                netok = False
+        return scnt, netok
 
     def send_new_lines(self, con, it):
         """Send new lines to stream
 
         Args:
-            con: Instance of DBConnect
+            con(DBConnector): DB connection
             it: Iterator to lines
 
         Returns:
             int: Number of sent lines
+            str: Last key value
         """
         scnt = 0
+        last_kv = None
         try:
             msgs = []
-            for msg in self._process_lines(it):
+            for msg, kv in self._process_lines(con, it):
                 if not msg:
                     # skip bad form message (can't parse)
                     self.linfo("skip bad form message")
                     continue
                 self._send_newline(msg, msgs)
                 scnt += 1
+                last_kv = kv
 
             self._send_remain_msgs(msgs)
 
         except Exception as e:
-            self._handle_send_fail(e)
+            self._handle_send_fail(e, None)
 
         self.send_retry = 0
-        return scnt
+        return scnt, last_kv
+
+    def conv_datetime(self, dtime):
+        """Convert a datetime to adapted format string.
+
+        Args:
+            dtime(datetime): date time to convert.
+
+        Return:
+            str: converted string.
+        """
+        sdt = dtime.strftime(self.datefmt)
+        if '%f' in self.datefmt and self.millisec_ndigit is not None:
+            sdt = sdt[:-(6 - self.millisec_ndigit)]
+        return sdt
 
     def get_initial_pos(self):
         """Return default start position"""
-        dt = TABLE_DEFAULT_DATE.strftime(self.datefmt)
-        if '%f' in self.datefmt and self.millisec_ndigit is not None:
-            dt = dt[:-(6 - self.millisec_ndigit)]
-        return dt
+        return self.conv_datetime(TABLE_DEFAULT_DATE)
 
     def parse_sent_pos(self, pos):
         """Parsing sent position (datetime)"""
@@ -529,22 +619,6 @@ class TableTailer(BaseTailer):
     def raise_if_notarget(self):
         if self.table is None:
             raise NoTarget()
-
-    def _may_send_newlines(self, con, cur):
-        """Check if need to send data and send it if necessary.
-
-        Args:
-            con: Instance of DBConnector
-            cur: Current timestamp
-        """
-        self.ldebug("_tmain_may_send_newlines")
-        if cur - self.last_send_try >= self.send_term:
-            self.ldebug(1, "{} >= {}".format(cur - self.last_send_try,
-                                             self.send_term))
-            self.select_lines_to_send(con)
-
-            self.last_send_try = cur
-        return 0
 
 
 class FileTailer(BaseTailer):
@@ -951,7 +1025,6 @@ class FileTailer(BaseTailer):
             scnt = self._may_send_newlines(lines, rbytes, scnt,
                                            file_path=self.target_path)
 
-        # save sent pos
         self.save_sent_pos(sent_pos + rbytes)
         return scnt
 
@@ -1009,7 +1082,7 @@ class FileTailer(BaseTailer):
 
             self._send_remain_msgs(msgs)
         except Exception as e:
-            self._handle_send_fail(e)
+            self._handle_send_fail(e, rbytes)
 
         self.send_retry = 0
         return scnt
@@ -1061,6 +1134,11 @@ class FileTailer(BaseTailer):
         self._save_sent_pos(tpath, spos)
 
     def save_sent_pos(self, pos):
+        """Save sent position for current target.
+
+        Args:
+            pos: Position to be saved.
+        """
         self.linfo("save_sent_pos")
         self.raise_if_notarget()
 
@@ -1077,12 +1155,32 @@ def db_execute(con, cmd):
     return True
 
 
+def db_get_column_idx(con, table, column):
+    """Get column index from a table.
+
+    Args:
+        con(DBConnector): DB connection
+        table: Table name
+        column: Name of the column to find the index
+    Returns:
+        int: Index of the column
+    """
+    cmd = "SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='{}'"\
+          .format(table)
+    db_execute(con, cmd)
+    for i, cols in enumerate(con.cursor.fetchall()):
+        cname = cols[3]
+        if cname == column:
+            return i
+
+
 class DBConnector(object):
 
     def __init__(self, dcfg, ldebug=print, lerror=print):
         self.conn = None
         self.cursor = None
         dbc = dcfg['db']
+        ldebug(dbc)
         dbcc = dbc['connect']
         self.driver = dbcc['driver']
         self.server = dbcc['server']
@@ -1126,6 +1224,7 @@ WHERE Session_id = @@SPID"""
             acs = 'UID=%s;PWD=%s' % (self.uid, self.passwd)
         cs = "DRIVER=%s;Server=%s;Database=%s;%s;" % (self.driver, self.server,
                                                       self.database, acs)
+        self.ldebug("cs: {}".format(cs))
         try:
             conn = pyodbc.connect(cs)
         except pyodbc.Error as e:
