@@ -29,7 +29,7 @@ fsender = None
 
 
 def start_tailing():
-    ldebug("start_tailing-")
+    ldebug("start_tailing")
     supress_boto3_log()
 
     if not tailc:
@@ -38,6 +38,8 @@ def start_tailing():
 
     for i, ti in enumerate(iter_tail_info(tailc)):
         if isinstance(ti, TableTailInfo):
+            ldebug("start table tail - {}".format(ti))
+
             tailer = TableTailer(
                 tailc,
                 ti.table,
@@ -47,18 +49,12 @@ def start_tailing():
                 ti.datefmt,
                 ti.key_col,
                 send_term=ti.send_term,
-                update_term=ti.update_term,
                 encoding=ti.encoding,
                 lines_on_start=ti.lines_on_start,
                 max_between_data=ti.max_between_data,
                 millisec_ndigit=ti.millisec_ndigit)
         elif isinstance(ti, FileTailInfo):
-            ldebug("start file tail - bdir: '{}', ptrn: '{}', tag: '{}', "
-                   "pos_dir: '{}', latest: '{}'".format(ti.bdir,
-                                                        ti.ptrn,
-                                                        ti.tag,
-                                                        ti.pos_dir,
-                                                        ti.latest))
+            ldebug("start file tail - {}".format(ti))
 
             tailer = FileTailer(
                 ti.bdir,
@@ -175,19 +171,6 @@ def _sync_file(scfg):
 
 def _run_tasks(tasks):
     ldebug('_run_tasks')
-
-    # import pyodbc
-    # ldebug(pyodbc.__file__)
-    # pyodbc.pooling = False
-    # ldebug("------------")
-    # try:
-    #     con = pyodbc.connect("DRIVER={SQL Server};Server=HAJE01-PC1;Database=C9Test;Trusted_Connection=yes;")
-    # except Exception, e:
-    #     lerror(str(e))
-    # else:
-    #     ldebug(str(con))
-    # ldebug("------------")
-
 
     for task in tasks:
         st = time.time()

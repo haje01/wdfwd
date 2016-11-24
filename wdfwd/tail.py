@@ -20,17 +20,19 @@ import win32file
 import pywintypes
 from fluent.sender import FluentSender, MAX_SEND_FAIL
 from aws_kinesis_agg import aggregator
-# import pyodbc  # NOQA
-# pyodbc.pooling = False
+import pyodbc  # NOQA
 
 from wdfwd.util import OpenNoLock, get_fileid, escape_path, validate_format as\
     _validate_format, validate_order_ptrn as _validate_order_ptrn,\
     query_aws_client
 
+pyodbc.pooling = False
+
 MAX_READ_BUF = 1024 * 1024 * 2  # 2MB
 MAX_SEND_RETRY = 5
-SEND_TERM = 1       # 1 second
-UPDATE_TERM = 5     # 5 seconds
+DB_SEND_TERM = 60        # 60 seconds
+FILE_SEND_TERM = 1       # 1 second
+FILE_UPDATE_TERM = 5     # 5 seconds
 MAX_BETWEEN_DATA = 1024 * 1024
 FMT_NO_BODY = 0
 FMT_JSON_BODY = 1
@@ -159,7 +161,7 @@ def _log(tail, level, tabfunc, _msg):
 
 
 class BaseTailer(object):
-    def __init__(self, tag, pdir, stream_cfg, send_term, update_term,
+    def __init__(self, tag, pdir, stream_cfg, send_term,
                  max_send_fail, echo, encoding, lines_on_start,
                  max_between_data):
         """
@@ -170,7 +172,6 @@ class BaseTailer(object):
             pdir: Position file directory
             stream_cfg: Log streaming service config (Fluentd / Kinesis)
             strem_cfg: Log transmission time interval
-            update_term: Time interval to check if log source has changed
             max_send_fail: Maximum number of retries in case of transmission
                 failure
             echo: Whether to save sent messages
@@ -191,7 +192,6 @@ class BaseTailer(object):
         self.tag = tag
         self.send_term = send_term
         self.last_send_try = 0
-        self.update_term = update_term
         self.last_update = 0
         self.kpk_cnt = 0  # count for kinesis partition key
         self.pdir = pdir
@@ -393,13 +393,12 @@ class BaseTailer(object):
 class TableTailer(BaseTailer):
 
     def __init__(self, dbcfg, table, tag, pdir, stream_cfg, datefmt, key_col,
-                 send_term=SEND_TERM, update_term=UPDATE_TERM,
-                 max_send_fail=None, echo=False, encoding=None,
-                 lines_on_start=None, max_between_data=None,
+                 send_term=DB_SEND_TERM, max_send_fail=None, echo=False,
+                 encoding=None, lines_on_start=None, max_between_data=None,
                  millisec_ndigit=None, delim='\t'):
         """init TableTailer"""
         super(TableTailer, self).__init__(tag, pdir, stream_cfg,
-                                          send_term, update_term,
+                                          send_term,
                                           max_send_fail, echo, encoding,
                                           lines_on_start, max_between_data)
         self.linfo(0, "TableTailer - init")
@@ -438,30 +437,22 @@ class TableTailer(BaseTailer):
             True if table exists, False otherwise.
         """
         tbl = self.table
-        self.ldebug("is_table_exist for {}".format(tbl))
         if not con.sys_schema:
             tbl = tbl.split('.')[-1]
         cmd = "SELECT NAME FROM SYS.TABLES WHERE NAME"\
               " LIKE '{}'".format(tbl)
-        self.ldebug("cmd: " + cmd)
         db_execute(con, cmd)
         rv = con.cursor.fetchall()
-        return len(rv) > 0
+        exist = len(rv) > 0
+        self.ldebug("is_table_exist for {} - {}".format(tbl, exist))
+        return exist
 
     def tmain(self):
         self.ldebug("tmain")
         cur = super(TableTailer, self).tmain()
 
-        sent_line = None
-        with DBConnector(self.dbcfg, self.ldebug, self.lerror) as con:
-            if not self.is_table_exist(con):
-                self.lwarning("Target table '{}' not exists".format(self.table)
-                              )
-                return None
-
-            sent_line = self.may_send_newlines(con, cur)
-
-        self.ldebug("tmain - {}".format(sent_line))
+        sent_line, _ = self.may_send_newlines(cur)
+        self.ldebug("tmain done")
         return sent_line
 
     def get_sent_pos(self):
@@ -508,6 +499,7 @@ class TableTailer(BaseTailer):
         Returns:
             Cursor to iterate results
         """
+        self.ldebug("select_lines_to_send: pos {}".format(pos))
         self.raise_if_notarget()
         cmd = """
             SELECT * FROM {0} WHERE {1} > '{2}'
@@ -533,33 +525,43 @@ class TableTailer(BaseTailer):
             line = self.delim.join([str(c) for c in cols])
             yield line, kv
 
-    def may_send_newlines(self, con, cur):
+    def may_send_newlines(self, cur):
         """Try to send new lines if time has passed.
 
         Args:
-            con(DBConnector): DB connection
             cur: urrent time stamp.
 
         Returns:
             sent: Number of sent lines.
             netok: True if sending causes no network problem.
         """
-        self.ldebug("_tmain_may_send_newlines")
-        scnt = 0
-        netok = True
+        self.ldebug("may_send_newlines")
+
         if cur - self.last_send_try >= self.send_term:
             self.ldebug(1, "{} >= {}".format(cur - self.last_send_try,
                                              self.send_term))
-            try:
-                self.last_send_try = cur
-                ppos = self.get_sent_pos()
-                it_lines = self.select_lines_to_send(con, ppos)
-                scnt, pos = self.send_new_lines(con, it_lines)
-                if scnt > 0:
-                    self.save_sent_pos(pos)
-            except pywintypes.error as e:
-                self.lerror("send error", str(e))
-                netok = False
+
+            self.last_send_try = cur
+            with DBConnector(self.dbcfg, self.ldebug, self.lerror) as con:
+                if not self.is_table_exist(con):
+                    self.lwarning("Target table '{}' not exists".format(
+                                  self.table))
+                    return None, None
+                return self._may_send_newlines(con)
+        return None, None
+
+    def _may_send_newlines(self, con):
+        scnt = 0
+        netok = True
+        try:
+            ppos = self.get_sent_pos()
+            it_lines = self.select_lines_to_send(con, ppos)
+            scnt, pos = self.send_new_lines(con, it_lines)
+            if scnt > 0:
+                self.save_sent_pos(pos)
+        except pywintypes.error as e:
+            self.lerror("send error", str(e))
+            netok = False
         return scnt, netok
 
     def send_new_lines(self, con, it):
@@ -573,6 +575,7 @@ class TableTailer(BaseTailer):
             int: Number of sent lines
             str: Last key value
         """
+        self.ldebug("send_new_lines")
         scnt = 0
         last_kv = None
         try:
@@ -592,6 +595,8 @@ class TableTailer(BaseTailer):
             self._handle_send_fail(e, None)
 
         self.send_retry = 0
+        self.ldebug(1, "sent {} lines, last key value '{}'".format(scnt,
+                    last_kv))
         return scnt, last_kv
 
     def conv_datetime(self, dtime):
@@ -624,18 +629,19 @@ class TableTailer(BaseTailer):
 class FileTailer(BaseTailer):
 
     def __init__(self, bdir, ptrn, tag, pdir, stream_cfg,
-                 send_term=SEND_TERM, update_term=UPDATE_TERM,
+                 send_term=FILE_SEND_TERM, update_term=FILE_UPDATE_TERM,
                  max_send_fail=None, elatest=None, echo=False, encoding=None,
                  lines_on_start=None, max_between_data=None, format=None,
                  parser=None, order_ptrn=None, reverse_order=False,
                  max_read_buffer=None):
 
         super(FileTailer, self).__init__(tag, pdir, stream_cfg, send_term,
-                                         update_term, max_send_fail, echo,
+                                         max_send_fail, echo,
                                          encoding, lines_on_start,
                                          max_between_data)
         self.bdir = bdir
         self.ptrn = ptrn
+        self.update_term = update_term
         self.target_path = self.target_fid = None
         self.reverse_order = reverse_order
 
@@ -1180,7 +1186,6 @@ class DBConnector(object):
         self.conn = None
         self.cursor = None
         dbc = dcfg['db']
-        ldebug(dbc)
         dbcc = dbc['connect']
         self.driver = dbcc['driver']
         self.server = dbcc['server']
@@ -1216,7 +1221,7 @@ WHERE Session_id = @@SPID"""
 
     def __enter__(self):
         global pyodbc
-        self.ldebug('db.Connector enter')
+        self.ldebug('DBConnector enter')
         acs = ''
         if self.trustcon:
             acs = 'Trusted_Connection=yes'
@@ -1224,23 +1229,24 @@ WHERE Session_id = @@SPID"""
             acs = 'UID=%s;PWD=%s' % (self.uid, self.passwd)
         cs = "DRIVER=%s;Server=%s;Database=%s;%s;" % (self.driver, self.server,
                                                       self.database, acs)
-        self.ldebug("cs: {}".format(cs))
+        st = time.time()
         try:
             conn = pyodbc.connect(cs)
         except pyodbc.Error as e:
             self.lerror(e[1])
             return
         else:
+            self.ldebug(1, "Connnected in {}".format(time.time() - st))
             self.conn = conn
             self.cursor = conn.cursor()
             self.cursor.execute("SET DATEFORMAT ymd")
             if self.read_uncommit:
-                self.ldebug("set read uncommited")
-                self.ldebug("  old isolation option:"
+                self.ldebug(1, "set read uncommited")
+                self.ldebug(2, "old isolation option:"
                             " {}".format(self.txn_iso_level))
                 cmd = "SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED"
                 self.cursor.execute(cmd)
-                self.ldebug("  new isolation option: "
+                self.ldebug(2, "new isolation option: "
                             "{}".format(self.txn_iso_level))
         return self
 

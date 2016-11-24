@@ -372,12 +372,13 @@ FileTailInfo = namedtuple('FileTailInfo', [
 
 TableTailInfo = namedtuple('TableTailInfo', [
     'table', 'tag', 'pos_dir', 'scfg', 'datefmt', 'key_col', 'send_term',
-    'update_term', 'encoding', 'lines_on_start', 'max_between_data',
+    'encoding', 'lines_on_start', 'max_between_data',
     'millisec_ndigit'])
 
 
 def iter_tail_info(tailc):
-    from wdfwd.tail import FluentCfg, KinesisCfg, UPDATE_TERM, SEND_TERM
+    from wdfwd.tail import FluentCfg, KinesisCfg, DB_SEND_TERM,\
+        FILE_UPDATE_TERM, FILE_SEND_TERM
 
     pos_dir = tailc.get('pos_dir')
     if not pos_dir:
@@ -417,16 +418,16 @@ def iter_tail_info(tailc):
 
         if cmd == 'table':
             fromc = src['table']
+            send_term = tailc.get('send_term', DB_SEND_TERM)
         elif cmd == 'flie':
             fromc = src['file']
-
-        update_term = fromc.get('update_term', UPDATE_TERM)
-        send_term = fromc.get('send_term', SEND_TERM)
+            update_term = tailc.get('update_term', FILE_UPDATE_TERM)
+            send_term = tailc.get('send_term', FILE_SEND_TERM)
 
         if cmd == 'table':
             yield make_table_tail_info(tailc, fromc, pos_dir, scfg,
                                        lines_on_start, max_between_data,
-                                       send_term, update_term)
+                                       send_term)
         if cmd == 'file':
             yield make_file_tail_info(tailc, fromc, pos_dir, scfg,
                                       lines_on_start, max_between_data,
@@ -434,7 +435,7 @@ def iter_tail_info(tailc):
 
 
 def make_table_tail_info(tailc, tablec, pos_dir, scfg, lines_on_start,
-                         max_between_data, send_term, update_term):
+                         max_between_data, send_term):
     dbc = tailc['db']
     encoding = dbc['encoding']
     datefmt = dbc['datefmt']
@@ -452,7 +453,6 @@ def make_table_tail_info(tailc, tablec, pos_dir, scfg, lines_on_start,
         datefmt=datefmt,
         key_col=key_col,
         send_term=send_term,
-        update_term=update_term,
         encoding=encoding,
         lines_on_start=lines_on_start,
         max_between_data=max_between_data,

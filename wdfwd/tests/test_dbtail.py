@@ -38,6 +38,7 @@ def rmpos():
 def delete_previous(con, no):
     drop_table(con, no)
     rmpos()
+    pass
 
 
 def drop_table(con, no):
@@ -105,8 +106,6 @@ def init():
         delete_previous(con, 1)
         create_table(con, 1)
         check_table(con, 1)
-        next_idx = fill_table(con, 1)
-        assert NUM_FILL_LINE == next_idx
 
 
 @pytest.fixture(scope='function')
@@ -139,13 +138,22 @@ def _ttail():
     return tail
 
 
-def test_dbtail_fill():
+def test_dbtail_fill1(init):
     with DBConnector(tcfg) as con:
-        fill_table(con, 1, 5, 15)
+        fill_table(con, 1, 10)
+
+
+def test_dbtail_fill2():
+    with DBConnector(tcfg) as con:
+        fill_table(con, 1, 5, 10)
 
 
 def test_dbtail_units(init, ttail):
     """Test basic units of db tailing"""
+    with DBConnector(tcfg) as con:
+        next_idx = fill_table(con, 1)
+        assert NUM_FILL_LINE == next_idx
+
     assert ttail.table == 'Log1'
     assert ttail.tag.endswith('wdfwd.dbtail1')
     assert ttail.max_between_data > 0

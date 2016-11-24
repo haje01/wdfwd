@@ -3,14 +3,14 @@ import re
 from datetime import datetime
 
 import yaml
-# import pyodbc  # NOQA
+import pyodbc  # NOQA
 
 from wdfwd.util import get_dump_fname, normalize_date_str, ldebug, linfo,\
     lwarning, lerror
 from wdfwd.get_config import get_config
 from wdfwd.const import TABLE_INFO_FILE
 
-# pyodbc.pooling = False
+pyodbc.pooling = False
 
 conv_map = {}
 str_op = str
