@@ -21,6 +21,7 @@ dcfg = tcfg['db']
 
 DATEFMT = dcfg['datefmt']
 MILLSEC_ND = dcfg['millisec_ndigit']
+DUP_QSIZE = dcfg['dup_qsize']
 DELIMITER = dcfg['delimiter']
 POS_DIR = tcfg['pos_dir']
 
@@ -140,11 +141,17 @@ def _ttail():
         encoding=enc,
         millisec_ndigit=MILLSEC_ND,
         lines_on_start=lines_on_start,
+        dup_qsize=DUP_QSIZE,
         echo=True)
     return tail
 
 
 def test_dbtail_fill1(init):
+    """test DB tailing step by step
+
+    Note: Remove Log1 before run this test
+
+    """
     with DBConnector(tcfg) as con:
         fill_table(con, 1, 10)
 
@@ -152,6 +159,11 @@ def test_dbtail_fill1(init):
 def test_dbtail_fill2():
     with DBConnector(tcfg) as con:
         fill_table(con, 1, 5, 10)
+
+
+def test_dbtail_fill3():
+    with DBConnector(tcfg) as con:
+        fill_table(con, 1, 50000 - 20, 20)
 
 
 def test_dbtail_units(init, ttail):
@@ -171,6 +183,7 @@ def test_dbtail_units(init, ttail):
     assert ttail.max_between_data > 0
     assert ttail.encoding == 'UTF8'
     assert ttail.key_col == 'dtime'
+    assert ttail.dup_qsize == 3
 
     with DBConnector(tcfg) as con:
         assert ttail.is_table_exist(con)
@@ -178,15 +191,25 @@ def test_dbtail_units(init, ttail):
         assert 1 == db_get_column_idx(con, 'Log1', 'message')
         assert 0 == ttail.key_idx
 
-        pos = ttail.get_sent_pos()
-        assert "2016-11-07 09:30:04.100" == pos
-        assert 5 == ttail.get_num_to_send(con, pos)
-        cursor = ttail.select_lines_to_send(con, pos)
-        scnt, last_kv = ttail.send_new_lines(con, cursor)
+        spos, hashes = ttail.get_sent_pos()
+        assert "2016-11-07 09:30:05.100" == spos
+        assert hashes is None
+        cursor = ttail.select_lines_to_send(con, spos)
+        sent_hashes = []
+        scnt, last_kv = ttail.send_new_lines(con, cursor, sent_hashes)
         assert 5 == scnt
+        assert 3 == len(sent_hashes)
         assert last_kv == "2016-11-07 09:30:09.100"
-        ttail.save_sent_pos(last_kv)
-        assert ttail.get_sent_pos() == "2016-11-07 09:30:09.100"
+        ttail.save_sent_pos(last_kv, sent_hashes)
+        pos, hashes = ttail.get_sent_pos()
+        assert pos == "2016-11-07 09:30:09.100"
+        assert 3 == len(hashes)
+
+        # Try to re-send from start (Test remove duplicates)
+        cursor = ttail.select_lines_to_send(con, pos)
+        scnt, last_kv = ttail.send_new_lines(con, cursor, sent_hashes)
+        assert 0 == scnt
+        assert last_kv is None
 
         # Add more logs
         fill_table(con, 1, 5, 10)
@@ -204,7 +227,9 @@ def test_dbtail_units(init, ttail):
         assert netok
 
         assert len(ttail.echo_file.getvalue().splitlines()) == 15
-        assert ttail.get_sent_pos() == "2016-11-07 09:30:19.100"
+        pos, hashes = ttail.get_sent_pos()
+        pos == "2016-11-07 09:30:19.100"
+        assert len(hashes)
 
 
 def test_dbtail_no_start_lines(init, ttail):
@@ -212,5 +237,4 @@ def test_dbtail_no_start_lines(init, ttail):
         fill_table(con, 1)
         ttail.lines_on_start = 0
         dtime = ttail.get_initial_pos()
-        assert "2016-11-07 09:30:09.100" == dtime
-
+        assert "2016-11-07 09:30:09.100\t" == dtime
