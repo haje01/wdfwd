@@ -244,7 +244,7 @@ class BaseTailer(object):
         self.linfo("read_sent_pos", "updating for '{}'..".format(target))
         tname = escape_path(target)
         ppath = os.path.join(self.pdir, tname + '.pos')
-        pos = self.get_initial_pos()
+        pos = None
         if os.path.isfile(ppath):
             with open(ppath, 'r') as f:
                 line = f.readline()
@@ -252,9 +252,10 @@ class BaseTailer(object):
                 pos = self.parse_sent_pos(elm[0])
             self.linfo(1, "found pos file - {}: {}".format(ppath, pos))
         else:
+            pos = self.get_initial_pos()
             self.linfo(1, "can't find pos file for {}, save as "
-                          "initial value".format(target))
-            self._save_sent_pos(target, self.get_initial_pos())
+                          "initial value {}".format(target, pos))
+            self._save_sent_pos(target, pos)
         return pos
 
     def _save_sent_pos(self, target, pos):
@@ -410,19 +411,15 @@ class TableTailer(BaseTailer):
         self.key_idx = None
         self.delim = delim
 
-    def _get_key_idx(self, con):
-        """Return key column index within table.
+    def _store_key_idx_once(self, con):
+        """Store key column index once.
 
         Args:
             con(DBConnector): DB connection
-
-        Returns:
-            int: Index of the column
         """
         assert self.key_col is not None
         if self.key_idx is None:
             self.key_idx = db_get_column_idx(con, self.table, self.key_col)
-        return self.key_idx
 
     def update_target(self, start=False):
         self.ldebug("dummy update_target - cur table '{}'".format(self.table))
@@ -507,47 +504,39 @@ class TableTailer(BaseTailer):
         db_execute(con, cmd)
         return con.cursor
 
-    def _process_lines(self, con, it):
-        """Process selected lines before send to stream.
-
-        Args:
-            con(DBConnector): DB connection
-            it: Iterator to lines
-
-        Yields:
-            str: Processed line
-            str: Processed line key value
-        """
-        while True:
-            cols = next(it)
-            ki = self._get_key_idx(con)
-            kv = self.conv_datetime(cols[ki])
-            line = self.delim.join([str(c) for c in cols])
-            yield line, kv
-
-    def may_send_newlines(self, cur):
+    def may_send_newlines(self, cur, econ=None):
         """Try to send new lines if time has passed.
 
         Args:
-            cur: urrent time stamp.
+            cur: Current time stamp.
+            econ(optional): Externally supplied DB Connection.
 
         Returns:
             sent: Number of sent lines.
             netok: True if sending causes no network problem.
         """
-        self.ldebug("may_send_newlines")
+        # self.ldebug("may_send_newlines")
 
         if cur - self.last_send_try >= self.send_term:
             self.ldebug(1, "{} >= {}".format(cur - self.last_send_try,
                                              self.send_term))
 
             self.last_send_try = cur
-            with DBConnector(self.dbcfg, self.ldebug, self.lerror) as con:
+
+            def _body(self, con):
+                self._store_key_idx_once(con)
+
                 if not self.is_table_exist(con):
                     self.lwarning("Target table '{}' not exists".format(
                                   self.table))
                     return None, None
                 return self._may_send_newlines(con)
+
+            if econ is None:
+                with DBConnector(self.dbcfg, self.ldebug, self.lerror) as con:
+                    return _body(self, con)
+            else:
+                return _body(self, econ)
         return None, None
 
     def _may_send_newlines(self, con):
@@ -564,12 +553,12 @@ class TableTailer(BaseTailer):
             netok = False
         return scnt, netok
 
-    def send_new_lines(self, con, it):
+    def send_new_lines(self, con, cursor):
         """Send new lines to stream
 
         Args:
             con(DBConnector): DB connection
-            it: Iterator to lines
+            cursor: Cursor by which new lines have been selected.
 
         Returns:
             int: Number of sent lines
@@ -580,11 +569,10 @@ class TableTailer(BaseTailer):
         last_kv = None
         try:
             msgs = []
-            for msg, kv in self._process_lines(con, it):
-                if not msg:
-                    # skip bad form message (can't parse)
-                    self.linfo("skip bad form message")
-                    continue
+
+            for cols in cursor:
+                kv = self.conv_datetime(cols[self.key_idx])
+                msg = self.delim.join([str(c) for c in cols])
                 self._send_newline(msg, msgs)
                 scnt += 1
                 last_kv = kv
@@ -614,8 +602,29 @@ class TableTailer(BaseTailer):
         return sdt
 
     def get_initial_pos(self):
-        """Return default start position"""
-        return self.conv_datetime(TABLE_DEFAULT_DATE)
+        """Return default start position(= datetime, for now)
+
+        Note: If lines_on_start is greater than 0, returns date time from
+            which that many can be sent, or date of the last log.
+
+        Returns:
+            datetime: Initial position
+        """
+        assert self.lines_on_start >= 0
+
+        if self.lines_on_start == 0:
+            cmd = 'SELECT TOP(1) dtime FROM {0} ORDER BY {1} DESC'.\
+                format(self.table, self.key_col)
+        else:
+            cmd = 'SELECT TOP(1) dtime FROM (SELECT TOP({0}) dtime FROM {1} '\
+                  'ORDER BY {2} DESC) a ORDER BY a.dtime'.\
+                  format(self.lines_on_start + 1, self.table, self.key_col)
+
+        with DBConnector(self.dbcfg) as con:
+            db_execute(con, cmd)
+            start_dtime = con.cursor.fetchone()[0]
+            self.ldebug("get_initial_pos: {}".format(start_dtime))
+            return self.conv_datetime(start_dtime)
 
     def parse_sent_pos(self, pos):
         """Parsing sent position (datetime)"""
@@ -1236,17 +1245,17 @@ WHERE Session_id = @@SPID"""
             self.lerror(e[1])
             return
         else:
-            self.ldebug(1, "Connnected in {}".format(time.time() - st))
+            self.ldebug("Connnected in {}".format(time.time() - st))
             self.conn = conn
             self.cursor = conn.cursor()
             self.cursor.execute("SET DATEFORMAT ymd")
             if self.read_uncommit:
-                self.ldebug(1, "set read uncommited")
-                self.ldebug(2, "old isolation option:"
+                self.ldebug("set read uncommited")
+                self.ldebug("old isolation option:"
                             " {}".format(self.txn_iso_level))
                 cmd = "SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED"
                 self.cursor.execute(cmd)
-                self.ldebug(2, "new isolation option: "
+                self.ldebug("new isolation option: "
                             "{}".format(self.txn_iso_level))
         return self
 

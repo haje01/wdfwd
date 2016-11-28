@@ -8,7 +8,7 @@ import pytest
 from wdfwd.const import BASE_DIR
 from wdfwd.get_config import get_config
 from wdfwd.tail import DBConnector, db_execute, TableTailer, FluentCfg,\
-    SEND_TERM, db_get_column_idx
+    db_get_column_idx
 
 cfg_path = os.path.join(BASE_DIR, 'tests', 'cfg_dbtail.yml')
 os.environ['WDFWD_CFG'] = cfg_path
@@ -100,7 +100,7 @@ insert into dbo.Log{0} values('{1}', {2});
     return start + n_fill
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope='function')
 def init():
     with DBConnector(tcfg) as con:
         delete_previous(con, 1)
@@ -115,14 +115,18 @@ def ttail():
 
 def _ttail():
     finfo = tcfg['from']
-    ainfo = finfo[0]['table']
-    table = ainfo['name']
+    lines_on_start = tcfg['lines_on_start']
     tinfo = tcfg['to']
     fluent = tinfo['fluent']
     fcfg = FluentCfg(fluent[0], fluent[1])
+    send_term = tcfg['send_term']
+
+    ainfo = finfo[0]['table']
+    table = ainfo['name']
     tag = ainfo['tag']
     key_col = ainfo['key_col']
     enc = dcfg['encoding']
+
     tail = TableTailer(
         tcfg,
         table,
@@ -132,8 +136,10 @@ def _ttail():
         DATEFMT,
         key_col,
         delim=DELIMITER,
+        send_term=send_term,
         encoding=enc,
         millisec_ndigit=MILLSEC_ND,
+        lines_on_start=lines_on_start,
         echo=True)
     return tail
 
@@ -153,6 +159,7 @@ def test_dbtail_units(init, ttail):
     with DBConnector(tcfg) as con:
         next_idx = fill_table(con, 1)
         assert NUM_FILL_LINE == next_idx
+        ttail._store_key_idx_once(con)
 
     assert ttail.table == 'Log1'
     assert ttail.tag.endswith('wdfwd.dbtail1')
@@ -162,7 +169,6 @@ def test_dbtail_units(init, ttail):
     assert len(ttail.pdir) > 0
     assert len(ttail.saddr) > 0
     assert ttail.max_between_data > 0
-    assert ttail.send_term == SEND_TERM
     assert ttail.encoding == 'UTF8'
     assert ttail.key_col == 'dtime'
 
@@ -170,14 +176,14 @@ def test_dbtail_units(init, ttail):
         assert ttail.is_table_exist(con)
         assert 0 == db_get_column_idx(con, 'Log1', 'dtime')
         assert 1 == db_get_column_idx(con, 'Log1', 'message')
-        assert 0 == ttail._get_key_idx(con)
+        assert 0 == ttail.key_idx
 
         pos = ttail.get_sent_pos()
-        assert '1970-01-01 00:00:00.000' == pos
-        assert NUM_FILL_LINE == ttail.get_num_to_send(con, pos)
-        it_lines = ttail.select_lines_to_send(con, pos)
-        scnt, last_kv = ttail.send_new_lines(con, it_lines)
-        assert NUM_FILL_LINE == scnt
+        assert "2016-11-07 09:30:04.100" == pos
+        assert 5 == ttail.get_num_to_send(con, pos)
+        cursor = ttail.select_lines_to_send(con, pos)
+        scnt, last_kv = ttail.send_new_lines(con, cursor)
+        assert 5 == scnt
         assert last_kv == "2016-11-07 09:30:09.100"
         ttail.save_sent_pos(last_kv)
         assert ttail.get_sent_pos() == "2016-11-07 09:30:09.100"
@@ -186,16 +192,25 @@ def test_dbtail_units(init, ttail):
         fill_table(con, 1, 5, 10)
         # check and send message
         t = time.time()
-        scnt, netok = ttail.may_send_newlines(con, t)
+        scnt, netok = ttail.may_send_newlines(t, con)
         assert scnt == 5
         assert netok
 
         # Add more logs
         fill_table(con, 1, 5, 15)
         # check and send message
-        scnt, netok = ttail.may_send_newlines(con, t + 10)
+        scnt, netok = ttail.may_send_newlines(t + 10, con)
         assert scnt == 5
         assert netok
 
-        assert len(ttail.echo_file.getvalue().splitlines()) == 20
+        assert len(ttail.echo_file.getvalue().splitlines()) == 15
         assert ttail.get_sent_pos() == "2016-11-07 09:30:19.100"
+
+
+def test_dbtail_no_start_lines(init, ttail):
+    with DBConnector(tcfg) as con:
+        fill_table(con, 1)
+        ttail.lines_on_start = 0
+        dtime = ttail.get_initial_pos()
+        assert "2016-11-07 09:30:09.100" == dtime
+
