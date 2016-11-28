@@ -29,7 +29,7 @@ rsync를 사용하면 서버에 있는 파일을 정해진 스케쥴로 목적�
 ### 방화벽 오픈
 
 서버의 경우 대부분 방화벽 뒤에 존재하기에, 서버에서 WzDat 서버(=로그 수집 서버)로 네트워크 인가(포트 `873`)가 필요하다.
- 
+
 ### 설치
 
 #### cwRsync 설치
@@ -41,7 +41,7 @@ rsync를 사용하면 서버에 있는 파일을 정해진 스케쥴로 목적�
 1. 임시 작업 폴더를 만든다 예) `c:\wdfwd-temp`
 
 ### 설정하기
-위에서 복사해둔 `config.yml`을  notepad로 열고 편집한다. (이때 항상 이것으로 오픈되도록 설정해두면 편리하다) 
+위에서 복사해둔 `config.yml`을  notepad로 열고 편집한다. (이때 항상 이것으로 오픈되도록 설정해두면 편리하다)
 
 여러가지 값들이 있으나, 기본 값을 이용하고, 설명된 부분만 설정 후 이용하면 될것이다.
 
@@ -63,7 +63,7 @@ rsync를 사용하면 서버에 있는 파일을 정해진 스케쥴로 목적�
         rsync_bwlimit: 5120  # 5 MByte/Sec, Default
 
 `service` > `name` - 서비스로 등록될 이름
-    
+
 `service` > `schedule` - 포워더가 동작할 시간을 crontab 방식으로 표기한다. 특정 시간이나 날짜 등 다양한 실행 조건을 표현할 수 있다.
 
 `service` > `force_first_run` - 최초 서비스 실행 시 무조건 한 번 동작한다.
@@ -75,7 +75,7 @@ rsync를 사용하면 서버에 있는 파일을 정해진 스케쥴로 목적�
 #### log 설정
 
 wdfwd 자체 로그 관련 설정이다.
-    
+
     log:
         version: 1
         formatters:
@@ -98,8 +98,8 @@ wdfwd 자체 로그 관련 설정이다.
 
 `handlers` > `file` > `filename` - wdfwd 자체 로그의 위치이다. 준비 단계에서 만들어둔 작업 폴더 아래 로그파일명 (예: `_wdfwd_log.txt` )까지의 풀 경로를 기입한다.
 
-`to_url` - wdfwd 자체 로그가 전송될 URL이다. 포워더 서비스가 잘 동작하고 있는지 확인할 때 용이하다.  `rsync-user@myserver.net::rsync-backup/myprj`형식으로 기입한다. 
-   
+`to_url` - wdfwd 자체 로그가 전송될 URL이다. 포워더 서비스가 잘 동작하고 있는지 확인할 때 용이하다.  `rsync-user@myserver.net::rsync-backup/myprj`형식으로 기입한다.
+
 #### tasks 설정
 
 여기에서 실재 로그 포워딩을 위한 작업(Task)를 설정한다. 작업에는 다음과 같은 종류가 있다.
@@ -112,10 +112,10 @@ wdfwd 자체 로그 관련 설정이다.
         - sync_folder:
             folder: # TARGET-FOLDER-PATH ex) C:\MyApp\slog
             to_url: # RSYNC-SERVER-URL-FOR-LOG ex) rsync-user@myserver.net::rsync-backup/myprj/mysvr/log
-    
+
 `folder` - 동기할 대상 폴더
 
-`to_url` - 대상 폴더가 전송될 URL이다. `rsync-user@myserver.net::rsync-backup/myprj/mysvr/log`형식으로 기입한다. 
+`to_url` - 대상 폴더가 전송될 URL이다. `rsync-user@myserver.net::rsync-backup/myprj/mysvr/log`형식으로 기입한다.
 
 
 ##### sync_files
@@ -129,19 +129,19 @@ wdfwd 자체 로그 관련 설정이다.
             recurse: true
             # rsync server url
             to_url: # RSYNC-SERVER-URL-FOR-DUMP ex) rsync-user@myserver.net::rsync-backup/myprj/mysvr/dump
-     
+
 `base_folder` - 파일을 찾기위한 기본 폴더
 
 `filename_pattern` - 대상 파일의 패턴 ( 예: `"*.dmp"`)
 
 `recurse` - 하위 폴더로 재귀적으로 검색할 지 여부
 
-`to_url` - 대상 파일이 전송될 URL이다. `rsync-user@myserver.net::rsync-backup/myprj/mysvr/dump`형식으로 기입한다. 
+`to_url` - 대상 파일이 전송될 URL이다. `rsync-user@myserver.net::rsync-backup/myprj/mysvr/dump`형식으로 기입한다.
 
 ##### sync_db_dump
 
 DB(= SQLServer)에 남고 있는 로그 테이블을 로컬 CSV 파일로 덤프 후, 그것을 포워딩한다.
-   
+
         # Dump DB to CSVs, then sync them
         - sync_db_dump:
             # NOTE: Dump folder where DB dumped .csv files are located.
@@ -215,16 +215,17 @@ DB(= SQLServer)에 남고 있는 로그 테이블을 로컬 CSV 파일로 덤프
 	예) `{type: 'varchar', encoding: 'cp949'}`
 	예) `{type: 'varchar', func: 'lambda x: x.encode('utf8')}`
 
-`db` > `to_url` - CSV 파일이 전송될 URL이다. `rsync-user@myserver.net::rsync-backup/myprj/mysvr/dblog`형식으로 기입한다. 
-
-## 실시간 로그 테일링(Tailing) 
+`db` > `to_url` - CSV 파일이 전송될 URL이다. `rsync-user@myserver.net::rsync-backup/myprj/mysvr/dblog`형식으로 기입한다.
 
 
-테일링은 지정된 파일의 변경된 끝 부분 만을 네트워크를 통해 전송한다. 
+## 실시간 로그 테일링(Tailing)
+
+
+테일링은 지정된 로그 파일이나 로그성 DB 테이블의 변경된 끝 부분 만을 네트워크를 통해 전송한다.
 
 테일링을 사용하면 rsync를 사용할 때 보다 설정이 간단하고, 무엇보다 실시간으로 로그를 전송할 수 있다. 테일링의 목적지는 Fluentd와 AWS Kinesis를 사용할 수 있다. 이를 위해서는 각각 Fluentd가 설치된 로그 중계 용 서버 또는 AWS Kinesis Stream + Kinesis Comsumer가 필요하다.
 
-설정 파일은 `app`과 `log` 섹션은 거의 비슷하나, `tailing` 섹션이 추가되었다. 아래를 참고하자.
+설정 파일은 `app`과 `log` 섹션은 거의 비슷하나, `tailing` 섹션이 추가되었다. 아래는 간단한 파일 테일링의 예이다.
 
     tailing:
         file_encoding: cp949
@@ -239,7 +240,7 @@ DB(= SQLServer)에 남고 있는 로그 테이블을 로컬 CSV 파일로 덤프
             - file:
                 dir: D:\Web_Log\Billing.MyPCBang\Logs
                 pattern: "[[]Fatal[]]*-*-*.log"
-                tag: billing.mypcbang.fatal 
+                tag: billing.mypcbang.fatal
         to:
             fluent: ['52.79.170.169', 24224]
 
@@ -264,6 +265,34 @@ DB(= SQLServer)에 남고 있는 로그 테이블을 로컬 CSV 파일로 덤프
 
 *단, JSON 로그의 경우 JSON의 키와 로그 필드 이름이 충돌하지 않도록 주의하자.*
 
+#### db
+
+테일링의 대상이 DB에 있는 테이블인 경우 아래와 같이 `db` 섹션을 정의해 준다.
+
+    db:
+        connect:
+            driver: "{SQL Server}"
+            server: localhost
+            port:
+            database: # Target Database Name
+            trustcon: false
+            read_uncommit: true
+            uid: # DB User
+            passwd: # DB Password
+        encoding: UTF8
+        delimiter: '\t'
+        datefmt: "%Y-%m-%d %H:%M:%S.%f"
+        millisec_ndigit: 3
+        dup_qsize: 3
+        sys_schema: false
+
+* `encoding` - DB의 캐릭터 인코딩
+* `delimiter` - 컬럼 구분자
+* `datefmt` - DB의 일시(date time) 포맷
+* `millisec_ndigit` - 밀리세컨드 부분의 자리수 (SQLServer의 경우 3이다.)
+* `dup_size` - 같은 일시의 로그 문자열의 해쉬를 기억해서 중복을 제거할 큐의 크기. 로그의 일시 포맷이 정밀하지 않고, 찍히는 로그가 많을 수록 더 큰값이 필요하다. (기본은 100)
+* `sys_schema` - 대상 테이블 이름에 네임 스키마가 명시되어 있는지 여부
+
 #### from
 
 테일링의 대상을 설정한다.
@@ -278,9 +307,22 @@ DB(= SQLServer)에 남고 있는 로그 테이블을 로컬 CSV 파일로 덤프
 
 `tag` - Fluentd/Kinesis 에서 참고할 태그
 
-#### to 
+##### table
 
-테일링의 목적지를 설정.
+테일링의 대상이 DB 테이블인 경우.
+
+    - table:
+        name: Log1
+        key_col: dtime
+        tag: wdfwd.dbtail1
+
+* `name` - 대상 테이블 이름
+* `key_col` - 테이블의 키 컬럼명. 로그성 테이블의 경우 일반적으로 `datetime` 타입의 컬럼이 지정된다.
+* `tag` - 목적지 스트리밍 서비스에서 사용될 분류 태그
+
+#### to
+
+테일링의 목적지를 설정. Fluentd나 AWS Kinesis 같은 데이터 스트리밍 서비스 정보를 지정한다.
 
 ##### fluent
 
@@ -383,9 +425,9 @@ Kinesis 스트림으로 보낸다. 다음과 같은 형식을 따른다.
 json 파싱된 결과는 다른 토큰의 결과와 합쳐지는데, 이때 같은 키로 충돌이 생길 수 있다. 다음의 예에서
 
     2016-03-19 {'DATE': '2001-01-01'}
- 
+
 위의 파서로 파싱하면 다음과 같은 잘못된 결과가 나온다.
-    
+
     {'date': '2001-01-01'}
 
 이를 방지하기 위해 `prefix`를 사용하자.
@@ -428,10 +470,10 @@ json 파싱된 결과는 다른 토큰의 결과와 합쳐지는데, 이때 같�
 이때 미리 환경변수 `WDFWD_CFG` 가 설정되어 있다면 `--cfg_path` 는 생략 가능하다.
 
 정상적으로 파싱이 되면 파싱된 결과를 출력하고, 실패하면 다음과 같이 에러 메시지와 함께 실패한 행을 출력한다.
-	
+
     Parsing failed! : '16-05-25 00:25:14, 1, 1213, 7, lee, 10.100.40.100, 1213'
 
-## 커스텀 파서 
+## 커스텀 파서
 
 멀티 라인으로 구성되어 있는 복잡한 로그를 파싱할 때는 커스텀 파서를 이용한다. 커스텀 파서는 `wdfwd/parser/custom.py`에 클래스로 구현되어야 한다. 아래와 같이 설정파일의 custom필드에 클래스 명을 기입하여 사용한다.
 
@@ -450,14 +492,14 @@ json 파싱된 결과는 다른 토큰의 결과와 합쳐지는데, 이때 같�
 
 터미널을 열고 wdfwd가 설치된 폴더로 이동(`cd`) 후 아래와 같이 진행한다.
 
-#### 서비스 설치 
+#### 서비스 설치
 *만약 기존에 설치된 버전이 있으면, 반드시 아래의 제거 방법을 참고하여 먼저 제거해준다.*
 
 윈도우 재부팅 시에도 서비스가 자동으로 실행되도록 설치한다.
 
 `wdfwd_svc.exe —-startup=auto install`
 
-#### 서비스 시작 
+#### 서비스 시작
 다음과 같이 서비스를 시작하고
 
 `wdfwd_svc.exe start`
@@ -488,7 +530,7 @@ json 파싱된 결과는 다른 토큰의 결과와 합쳐지는데, 이때 같�
 rsync를 통한 전송이 안되는 경우는 네트워크 방화벽 설정을 다시 확인하고, 윈도우 내 방화벽도 확인한다.
 
 #### 윈도우 방화벽 설정 (wf.msc)
-- '공용 프로필’에서 아웃바운드 연결이 허용되어 있지 않으면, 아웃 바운드 규칙 클릭 > 프로필로 필터링 > 도메일 프로필로 필터링으로 등록된 것이 있는지 확인한다. 
+- '공용 프로필’에서 아웃바운드 연결이 허용되어 있지 않으면, 아웃 바운드 규칙 클릭 > 프로필로 필터링 > 도메일 프로필로 필터링으로 등록된 것이 있는지 확인한다.
 - 없으면 '새 규칙’ > 프로그램 지정 > 연결 허용 -> 도메인, 개인, 공용 모두 켬(기본) -> 이름과 설명 추가
 
 ### DB 덤프시 에러 발생
