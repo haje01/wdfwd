@@ -185,15 +185,23 @@ def test_dbtail_units(init, ttail):
     assert ttail.key_col == 'dtime'
     assert ttail.dup_qsize == 3
 
+    pos, hashes = ttail.parse_sent_pos("2016-11-07 09:30:09.100\t")
+    assert pos == "2016-11-07 09:30:09.100"
+    assert hashes == []
+
+    pos, hashes = ttail.parse_sent_pos("2016-11-07 09:30:09.100\t1, 2, 3")
+    assert pos == "2016-11-07 09:30:09.100"
+    assert hashes == [1, 2, 3]
+
     with DBConnector(tcfg) as con:
         assert ttail.is_table_exist(con)
         assert 0 == db_get_column_idx(con, 'Log1', 'dtime')
         assert 1 == db_get_column_idx(con, 'Log1', 'message')
         assert 0 == ttail.key_idx
 
-        spos, hashes = ttail.get_sent_pos()
+        spos, hashes = ttail.get_sent_pos(con)
         assert "2016-11-07 09:30:05.100" == spos
-        assert hashes is None
+        assert hashes == []
         cursor = ttail.select_lines_to_send(con, spos)
         sent_hashes = []
         scnt, last_kv = ttail.send_new_lines(con, cursor, sent_hashes)
@@ -201,7 +209,7 @@ def test_dbtail_units(init, ttail):
         assert 3 == len(sent_hashes)
         assert last_kv == "2016-11-07 09:30:09.100"
         ttail.save_sent_pos(last_kv, sent_hashes)
-        pos, hashes = ttail.get_sent_pos()
+        pos, hashes = ttail.get_sent_pos(con)
         assert pos == "2016-11-07 09:30:09.100"
         assert 3 == len(hashes)
 
@@ -222,12 +230,12 @@ def test_dbtail_units(init, ttail):
         # Add more logs
         fill_table(con, 1, 5, 15)
         # check and send message
-        scnt, netok = ttail.may_send_newlines(t + 10, con)
+        scnt, netok = ttail.may_send_newlines(t + 1, con)
         assert scnt == 5
         assert netok
 
         assert len(ttail.echo_file.getvalue().splitlines()) == 15
-        pos, hashes = ttail.get_sent_pos()
+        pos, hashes = ttail.get_sent_pos(con)
         pos == "2016-11-07 09:30:19.100"
         assert len(hashes)
 
@@ -238,3 +246,16 @@ def test_dbtail_no_start_lines(init, ttail):
         ttail.lines_on_start = 0
         dtime = ttail.get_initial_pos()
         assert "2016-11-07 09:30:09.100\t" == dtime
+
+
+def test_dbtail_rmdup(init, ttail):
+    with DBConnector(tcfg) as con:
+        fill_table(con, 1)
+        t = time.time()
+        scnt, netok = ttail.may_send_newlines(t, con)
+        assert scnt == 5
+
+        # make one duplicate
+        fill_table(con, 1, 5, 9)
+        scnt, netok = ttail.may_send_newlines(t + 1, con)
+        assert scnt == 4

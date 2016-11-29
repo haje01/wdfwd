@@ -236,15 +236,17 @@ class BaseTailer(object):
         self.ldebug("tmain {}".format(cur))
         return cur
 
-    def read_sent_pos(self, target):
+    def read_sent_pos(self, target, con):
         """Update the sent position of the target so far.
 
         Arguments:
             target: file path for FileTailer, table name for DBTailer
+            con(DBConnector): DB Connection
 
         Returns:
-            (position type): Parsed position type (`int` for FileTailer,
-                (`datetime`, `list`) for TableTailer)
+            (position type): Parsed position type
+                `int` for FileTailer.
+                (`datetime`, `list`) for TableTailer.
         """
         self.linfo("read_sent_pos", "updating for '{}'..".format(target))
         tname = escape_path(target)
@@ -255,7 +257,7 @@ class BaseTailer(object):
                 pos = f.readline()
             self.linfo(1, "found pos file - {}: {}".format(ppath, pos))
         else:
-            pos = self.get_initial_pos()
+            pos = self.get_initial_pos(con)
             self.linfo(1, "can't find pos file for {}, save as "
                           "initial value {}".format(target, pos))
             self._save_sent_pos(target, pos)
@@ -457,18 +459,17 @@ class TableTailer(BaseTailer):
         self.ldebug("tmain done")
         return sent_line
 
-    def get_sent_pos(self):
+    def get_sent_pos(self, con):
         """Return the sent info that has been sent so far
+
+        Args:
+            con(DB Connection): DB Connection
 
         Returns:
             (key type): Sent position
             list: Hashes of sent message
         """
-        pos, hashes = self.read_sent_pos(self.table)
-        if len(hashes) > 0:
-            hashes = [int(h) for h in hashes.split(',')]
-        else:
-            hashes = None
+        pos, hashes = self.read_sent_pos(self.table, con)
         return pos, hashes
 
     def save_sent_pos(self, pos, hashes):
@@ -486,7 +487,7 @@ class TableTailer(BaseTailer):
 
         Args:
             con(DBConnector): DB connection
-            pos: Position sent so far
+            pos(str): Position sent so far
 
         Returns:
             Cursor to iterate results
@@ -500,7 +501,7 @@ class TableTailer(BaseTailer):
         return con.cursor
 
     def may_send_newlines(self, cur, econ=None):
-        """Try to send new lines if time has passed.
+        """Try to send new lines if time has passed enough.
 
         Args:
             cur: Current time stamp.
@@ -535,10 +536,22 @@ class TableTailer(BaseTailer):
         return None, None
 
     def _may_send_newlines(self, con):
+        """Send new lines if there are ones content with additional conditions.
+
+        Note:
+            Conditions are over last position & no duplicates
+
+        Args:
+            con(DBConnector): DB connection
+
+        Returns:
+            int: Count of sent lines
+            netok: True if sending causes no network problem.
+        """
         scnt = 0
         netok = True
         try:
-            ppos, hashq = self.get_sent_pos()
+            ppos, hashq = self.get_sent_pos(con)
             it_lines = self.select_lines_to_send(con, ppos)
             scnt, pos = self.send_new_lines(con, it_lines, hashq)
             if scnt > 0:
@@ -613,8 +626,11 @@ class TableTailer(BaseTailer):
             sdt = sdt[:-(6 - self.millisec_ndigit)]
         return sdt
 
-    def get_initial_pos(self):
+    def get_initial_pos(self, con):
         r"""Return default start position(= datetime, for now)
+
+        Args:
+            con(DBConnector): DB Connection
 
         Note: If lines_on_start is greater than 0, returns date time from
             which that many can be sent, or date of the last log.
@@ -633,16 +649,20 @@ class TableTailer(BaseTailer):
                   'ORDER BY {2} DESC) a ORDER BY a.dtime'.\
                   format(self.lines_on_start, self.table, self.key_col)
 
-        with DBConnector(self.dbcfg) as con:
-            db_execute(con, cmd)
-            dtime = con.cursor.fetchone()[0]
-            dtime = self.conv_datetime(dtime)
-            self.ldebug("get_initial_pos: {}".format(dtime))
-            return "{}\t".format(dtime)
+        db_execute(con, cmd)
+        dtime = con.cursor.fetchone()[0]
+        dtime = self.conv_datetime(dtime)
+        self.ldebug("get_initial_pos: {}".format(dtime))
+        return "{}\t".format(dtime)
 
     def parse_sent_pos(self, pos):
         """Parsing sent position (datetime)"""
-        return pos.split('\t')
+        pos, hashes = pos.split('\t')
+        if len(hashes) == 0:
+            hashes = []
+        else:
+            hashes = [int(i) for i in hashes.split(',')]
+        return pos, hashes
 
     def raise_if_notarget(self):
         if self.table is None:

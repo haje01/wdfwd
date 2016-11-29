@@ -271,6 +271,7 @@ def table_rows(con, tbinfo, date=None, max_fetch=None):
     while True:
         if max_fetch is not None and fetch_cnt >= max_fetch:
             break
+        # Actually, fetchmany has little advantage over fetch iteration.
         rows = con.cursor.fetchmany(con.fetchsize)
         fetch_cnt += 1
         if not rows:
