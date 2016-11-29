@@ -1224,6 +1224,7 @@ def db_get_column_idx(con, table, column):
 
 
 class DBConnector(object):
+    n_instance = 0
 
     def __init__(self, dcfg, ldebug=print, lerror=print):
         self.conn = None
@@ -1264,7 +1265,12 @@ WHERE Session_id = @@SPID"""
 
     def __enter__(self):
         global pyodbc
+
         self.ldebug('DBConnector enter')
+        DBConnector.n_instance += 1
+        assert DBConnector.n_instance == 1 and "Recommend to have one DB "\
+            "connection."
+
         acs = ''
         if self.trustcon:
             acs = 'Trusted_Connection=yes'
@@ -1295,6 +1301,8 @@ WHERE Session_id = @@SPID"""
 
     def __exit__(self, _type, value, tb):
         self.ldebug('db.Connector exit')
+        DBConnector.n_instance -= 1
+
         if self.cursor is not None:
             self.ldebug('cursor.close()')
             self.cursor.close()
