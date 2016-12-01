@@ -52,7 +52,11 @@ def start_tailing():
                 encoding=ti.encoding,
                 lines_on_start=ti.lines_on_start,
                 max_between_data=ti.max_between_data,
-                millisec_ndigit=ti.millisec_ndigit)
+                millisec_ndigit=ti.millisec_ndigit,
+                dup_qsize=ti.dup_qsize,
+                key_idx=ti.key_idx,
+                start_key_sp=ti.start_key_sp,
+                latest_rows_sp=ti.latest_rows_sp)
         elif isinstance(ti, FileTailInfo):
             ldebug("start file tail - {}".format(ti))
 

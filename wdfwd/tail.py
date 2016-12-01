@@ -252,16 +252,24 @@ class BaseTailer(object):
         tname = escape_path(target)
         ppath = os.path.join(self.pdir, tname + '.pos')
         pos = None
+
         if os.path.isfile(ppath):
             with open(ppath, 'r') as f:
                 pos = f.readline()
             self.linfo(1, "found pos file - {}: {}".format(ppath, pos))
-        else:
+            parsed_pos = self.parse_sent_pos(pos)
+            if parsed_pos is None:
+                self.lerror("Invalid pos file: '{}'".format(pos))
+                pos = None
+            else:
+                pos = parsed_pos
+
+        if pos is None:
             pos = self.get_initial_pos(con)
-            self.linfo(1, "can't find pos file for {}, save as "
+            self.linfo(1, "can't find valid pos for {}, save as "
                           "initial value {}".format(target, pos))
             self._save_sent_pos(target, pos)
-        pos = self.parse_sent_pos(pos)
+            pos = self.parse_sent_pos(pos)
         return pos
 
     def _save_sent_pos(self, target, pos):
@@ -402,7 +410,8 @@ class TableTailer(BaseTailer):
     def __init__(self, dbcfg, table, tag, pdir, stream_cfg, datefmt, key_col,
                  send_term=DB_SEND_TERM, max_send_fail=None, echo=False,
                  encoding=None, lines_on_start=None, max_between_data=None,
-                 millisec_ndigit=None, dup_qsize=None, delim='\t'):
+                 millisec_ndigit=None, dup_qsize=None, delim='\t',
+                 start_key_sp=None, latest_rows_sp=None, key_idx=None):
         """init TableTailer"""
         super(TableTailer, self).__init__(tag, pdir, stream_cfg,
                                           send_term,
@@ -414,9 +423,21 @@ class TableTailer(BaseTailer):
         self.datefmt = datefmt
         self.millisec_ndigit = millisec_ndigit
         self.key_col = key_col
-        self.key_idx = None
         self.dup_qsize = DB_DUP_QSIZE if dup_qsize is None else dup_qsize
         self.delim = delim
+        # If SP is used, both start_key_sp & latest_rows_sp exist should exist.
+        assert (start_key_sp and latest_rows_sp) or (not start_key_sp and
+                                                     not latest_rows_sp)
+        self.start_key_sp = start_key_sp
+        self.latest_rows_sp = latest_rows_sp
+        self.use_sp = start_key_sp is not None
+        self.linfo("  start_key_sp: {}, latest_rows_sp: {}".
+                   format(start_key_sp, latest_rows_sp))
+        if self.use_sp:
+            assert key_idx is not None
+            self.key_idx = key_idx
+        else:
+            self.key_idx = None
 
     def _store_key_idx_once(self, con):
         """Store key column index once.
@@ -424,7 +445,6 @@ class TableTailer(BaseTailer):
         Args:
             con(DBConnector): DB connection
         """
-        assert self.key_col is not None
         if self.key_idx is None:
             self.key_idx = db_get_column_idx(con, self.table, self.key_col)
 
@@ -440,6 +460,7 @@ class TableTailer(BaseTailer):
         Returns:
             True if table exists, False otherwise.
         """
+        assert not self.use_sp
         tbl = self.table
         if not con.sys_schema:
             tbl = tbl.split('.')[-1]
@@ -448,15 +469,13 @@ class TableTailer(BaseTailer):
         db_execute(con, cmd)
         rv = con.cursor.fetchall()
         exist = len(rv) > 0
-        self.ldebug("is_table_exist for {} - {}".format(tbl, exist))
+        self.ldebug("is_table_exist for {} - {}".format(tbl, rv))
         return exist
 
     def tmain(self):
-        self.ldebug("tmain")
         cur = super(TableTailer, self).tmain()
 
         sent_line, _ = self.may_send_newlines(cur)
-        self.ldebug("tmain done")
         return sent_line
 
     def get_sent_pos(self, con):
@@ -494,10 +513,14 @@ class TableTailer(BaseTailer):
         """
         self.ldebug("select_lines_to_send: pos {}".format(pos))
         self.raise_if_notarget()
-        cmd = """
-            SELECT * FROM {0} WHERE {1} >= '{2}'
-        """.format(self.table, self.key_col, pos)
-        db_execute(con, cmd)
+        if self.use_sp:
+            cmd = 'EXEC {} ?'.format(self.latest_rows_sp)
+            db_execute(con, cmd, pos)
+        else:
+            cmd = """
+                SELECT * FROM {0} WHERE {1} >= '{2}'
+            """.format(self.table, self.key_col, pos)
+            db_execute(con, cmd)
         return con.cursor
 
     def may_send_newlines(self, cur, econ=None):
@@ -520,9 +543,10 @@ class TableTailer(BaseTailer):
             self.last_send_try = cur
 
             def _body(self, con):
-                self._store_key_idx_once(con)
+                if not self.use_sp:
+                    self._store_key_idx_once(con)
 
-                if not self.is_table_exist(con):
+                if not self.use_sp and not self.is_table_exist(con):
                     self.lwarning("Target table '{}' not exists".format(
                                   self.table))
                     return None, None
@@ -586,11 +610,13 @@ class TableTailer(BaseTailer):
             for cols in cursor:
                 kv = self.conv_datetime(cols[self.key_idx])
                 msg = self.delim.join([str(c) for c in cols])
+                # convert encoding
+                if self.encoding:
+                    msg = msg.decode(self.encoding).encode('utf8')
 
                 msgh = hash(msg)
                 if sent_hashq is not None and msgh in sent_hashq:
-                    self.ldebug("message '{}' is duplicated. skip.".
-                                format(msg))
+                    self.ldebug("dup msg: '{}'..".format(msg[:50]))
                     continue
 
                 self._send_newline(msg, msgs)
@@ -639,25 +665,39 @@ class TableTailer(BaseTailer):
             str: Initial position ends with '\t' seperator (which seperates
                 duplicate hashes ).
         """
+        self.ldebug("get_initial_pos: {}".format(self.lines_on_start))
         assert self.lines_on_start >= 0
 
-        if self.lines_on_start == 0:
-            cmd = 'SELECT TOP(1) dtime FROM {0} ORDER BY {1} DESC'.\
-                format(self.table, self.key_col)
+        lines_on_start = 1 if self.lines_on_start == 0 else self.lines_on_start
+
+        if self.use_sp:
+            cmd = 'EXEC {} ?'.format(self.start_key_sp)
+            db_execute(con, cmd, lines_on_start)
         else:
             cmd = 'SELECT TOP(1) dtime FROM (SELECT TOP({0}) dtime FROM {1} '\
                   'ORDER BY {2} DESC) a ORDER BY a.dtime'.\
-                  format(self.lines_on_start, self.table, self.key_col)
-
-        db_execute(con, cmd)
+                  format(lines_on_start, self.table, self.key_col)
+            db_execute(con, cmd)
+        self.ldebug(cmd)
         dtime = con.cursor.fetchone()[0]
         dtime = self.conv_datetime(dtime)
         self.ldebug("get_initial_pos: {}".format(dtime))
         return "{}\t".format(dtime)
 
     def parse_sent_pos(self, pos):
-        """Parsing sent position (datetime)"""
-        pos, hashes = pos.split('\t')
+        """Parsing sent position (datetime)
+
+        Args:
+            pos(str): Sent position
+
+        Returns:
+            (position type): Last sent position
+            (hashes): Sent message hash list
+        """
+        try:
+            pos, hashes = pos.split('\t')
+        except ValueError:
+            return None
         if len(hashes) == 0:
             hashes = []
         else:
@@ -826,11 +866,11 @@ class FileTailer(BaseTailer):
 
         if ret > 0:
             self.linfo(1, "reset target to delegate update_target")
-            self.save_sent_pos(self.get_initial_pos())
+            self.save_sent_pos(self.get_initial_pos(None))
             self.set_target(None)
         return ret
 
-    def get_initial_pos(self):
+    def get_initial_pos(self, con):
         return 0
 
     def handle_elatest_rotation(self, epath=None, cur=None):
@@ -867,7 +907,7 @@ class FileTailer(BaseTailer):
             # even elatest file not exist, there might be pos file
             self._save_sent_pos(pre_elatest, self.get_sent_pos(epath))
             # reset elatest sent_pos
-            self._save_sent_pos(epath, self.get_initial_pos())
+            self._save_sent_pos(epath, self.get_initial_pos(None))
             self.last_update = cur
             # pre-elatest is target for now
             self.set_target(pre_elatest)
@@ -938,7 +978,7 @@ class FileTailer(BaseTailer):
             if start:
                 self.start_sent_pos(self.target_path)
             else:
-                self.read_sent_pos(self.target_path)
+                self.read_sent_pos(self.target_path, None)
         else:
             self.linfo(1, "cur target {}".format(self.target_path))
 
@@ -1141,7 +1181,7 @@ class FileTailer(BaseTailer):
         if tpath in self.cache_sent_pos:
             return self.cache_sent_pos[tpath]
 
-        pos = self.read_sent_pos(tpath)
+        pos = self.read_sent_pos(tpath, None)
         self.cache_sent_pos[tpath] = pos
         return pos
 
@@ -1195,11 +1235,11 @@ class FileTailer(BaseTailer):
         self._save_sent_pos(self.target_path, pos)
 
 
-def db_execute(con, cmd):
+def db_execute(con, cmd, *args):
     try:
-        con.cursor.execute(cmd.strip())
-    except pyodbc.ProgrammingError as e:
-        sys.stderr.write(str(e[1]) + '\n')
+        con.cursor.execute(cmd.strip(), *args)
+    except Exception as e:
+        sys.stderr.write(str(e[1]).decode(sys.stdout.encoding) + '\n')
         return False
     return True
 
@@ -1242,7 +1282,6 @@ class DBConnector(object):
             else True
         self.uid = dbcc['uid']
         self.passwd = dbcc['passwd']
-        self.fetchsize = dbc['fetchsize']
         self.sys_schema = dbc['sys_schema']
         self.ldebug = ldebug
         self.lerror = lerror

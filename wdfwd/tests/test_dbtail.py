@@ -19,10 +19,6 @@ assert 'db' in cfg['tailing']
 tcfg = cfg['tailing']
 dcfg = tcfg['db']
 
-DATEFMT = dcfg['datefmt']
-MILLSEC_ND = dcfg['millisec_ndigit']
-DUP_QSIZE = dcfg['dup_qsize']
-DELIMITER = dcfg['delimiter']
 POS_DIR = tcfg['pos_dir']
 
 START_DATE = datetime(2016, 11, 7, 9, 30, 0)
@@ -105,43 +101,64 @@ insert into dbo.Log{0} values('{1}', {2});
 def init():
     with DBConnector(tcfg) as con:
         delete_previous(con, 1)
+        delete_previous(con, 2)
         create_table(con, 1)
+        create_table(con, 2)
         check_table(con, 1)
+        check_table(con, 2)
 
 
 @pytest.fixture(scope='function')
 def ttail():
-    return _ttail()
+    return _ttail(1)
 
 
-def _ttail():
-    finfo = tcfg['from']
-    lines_on_start = tcfg['lines_on_start']
-    tinfo = tcfg['to']
+@pytest.fixture(scope='function')
+def ttail2():
+    return _ttail(2)
+
+
+def _ttail(no, _tcfg=None):
+    global tcfg
+    ltcfg = _tcfg if _tcfg is not None else tcfg
+    finfo = ltcfg['from']
+    lines_on_start = ltcfg['lines_on_start']
+    tinfo = ltcfg['to']
     fluent = tinfo['fluent']
     fcfg = FluentCfg(fluent[0], fluent[1])
-    send_term = tcfg['send_term']
+    send_term = ltcfg['send_term']
+    pos_dir = ltcfg['pos_dir']
+    datefmt = dcfg['datefmt']
+    delimiter = dcfg['delimiter']
+    dup_qsize = dcfg['dup_qsize']
 
-    ainfo = finfo[0]['table']
+    ainfo = finfo[no - 1]['table']
     table = ainfo['name']
     tag = ainfo['tag']
-    key_col = ainfo['key_col']
+    key_col = ainfo.get('key_col')
     enc = dcfg['encoding']
+    start_key_sp = ainfo.get('start_key_sp')
+    latest_rows_sp = ainfo.get('latest_rows_sp')
+    key_idx = ainfo.get('key_idx')
+    millsec_nd = dcfg['millisec_ndigit']
 
     tail = TableTailer(
-        tcfg,
+        ltcfg,
         table,
         tag,
-        POS_DIR,
+        pos_dir,
         fcfg,
-        DATEFMT,
+        datefmt,
         key_col,
-        delim=DELIMITER,
+        delim=delimiter,
         send_term=send_term,
         encoding=enc,
-        millisec_ndigit=MILLSEC_ND,
+        millisec_ndigit=millsec_nd,
         lines_on_start=lines_on_start,
-        dup_qsize=DUP_QSIZE,
+        dup_qsize=dup_qsize,
+        start_key_sp=start_key_sp,
+        latest_rows_sp=latest_rows_sp,
+        key_idx=key_idx,
         echo=True)
     return tail
 
@@ -161,9 +178,9 @@ def test_dbtail_fill2():
         fill_table(con, 1, 5, 10)
 
 
-def test_dbtail_fill3():
-    with DBConnector(tcfg) as con:
-        fill_table(con, 1, 50000 - 20, 20)
+# def test_dbtail_fill3():
+#     with DBConnector(tcfg) as con:
+#         fill_table(con, 1, 50000 - 20, 20)
 
 
 def test_dbtail_units(init, ttail):
@@ -244,7 +261,7 @@ def test_dbtail_no_start_lines(init, ttail):
     with DBConnector(tcfg) as con:
         fill_table(con, 1)
         ttail.lines_on_start = 0
-        dtime = ttail.get_initial_pos()
+        dtime = ttail.get_initial_pos(con)
         assert "2016-11-07 09:30:09.100\t" == dtime
 
 
@@ -259,3 +276,32 @@ def test_dbtail_rmdup(init, ttail):
         fill_table(con, 1, 5, 9)
         scnt, netok = ttail.may_send_newlines(t + 1, con)
         assert scnt == 4
+
+
+def test_dbtail_sp(init, ttail2):
+    assert ttail2.use_sp
+    assert ttail2.start_key_sp is not None
+    assert ttail2.latest_rows_sp is not None
+
+    cfg2 = cfg['tailing']['from'][1]['table']
+    with DBConnector(tcfg) as con:
+        fill_table(con, 2)
+        cmd = 'EXEC {} ?'.format(cfg2['start_key_sp'])
+        db_execute(con, cmd, 5)
+        rv = con.cursor.fetchone()
+        start_dt = rv[0]
+        assert start_dt == datetime(2016, 11, 7, 9, 30, 5, 100000)
+
+        start_dt = ttail2.conv_datetime(start_dt)
+        cmd = "EXEC {} ?".format(cfg2['latest_rows_sp'])
+        db_execute(con, cmd, start_dt)
+        rows = con.cursor.fetchall()
+        assert 5 == len(rows)
+        assert rows[0][0] == datetime(2016, 11, 7, 9, 30, 5, 100000)
+        assert rows[-1][0] == datetime(2016, 11, 7, 9, 30, 9, 100000)
+
+        t = time.time()
+        scnt, netok = ttail2.may_send_newlines(t, con)
+        assert 5 == scnt
+        pos = ttail2.get_sent_pos(con)
+        assert '2016-11-07 09:30:09.100' == pos[0]

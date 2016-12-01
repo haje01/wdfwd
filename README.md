@@ -320,6 +320,21 @@ DB(= SQLServer)에 남고 있는 로그 테이블을 로컬 CSV 파일로 덤프
 * `key_col` - 테이블의 키 컬럼명. 로그성 테이블의 경우 일반적으로 `datetime` 타입의 컬럼이 지정된다.
 * `tag` - 목적지 스트리밍 서비스에서 사용될 분류 태그
 
+MS SQLServer에서 SP(Stored Proceedure)를 써야만 한다면, 아래와 같이 설정할 수 있다.
+
+        - table:
+            name: Log2
+            start_key_sp: uspGetStartDatetime
+            latest_rows_sp: uspGetLatestRows
+            key_idx: 0
+            tag: wdfwd.dbtail2
+
+* `name` - 대상 테이블 이름
+* `start_key_sp` - 테일링을 시작할 키를 요청하는 SP. int형 인자를 받는데 이값은 lines_on_start가 건네진다.
+* `latest_rows_sp` - 지정 시간 이후의 최신 로그 행을 요청. datetime형 인자를 받는데, 최근 보내진 행의 키가 건네진다.
+* `key_idx` - SP 반환된 행에서 키로 사용될 컬럼의 인덱스
+* `tag` - 목적지 스트리밍 서비스에서 사용될 분류 태그
+
 #### to
 
 테일링의 목적지를 설정. Fluentd나 AWS Kinesis 같은 데이터 스트리밍 서비스 정보를 지정한다.

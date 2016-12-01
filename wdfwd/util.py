@@ -373,7 +373,8 @@ FileTailInfo = namedtuple('FileTailInfo', [
 TableTailInfo = namedtuple('TableTailInfo', [
     'table', 'tag', 'pos_dir', 'scfg', 'datefmt', 'key_col', 'send_term',
     'encoding', 'lines_on_start', 'max_between_data',
-    'millisec_ndigit', 'dup_qsize'])
+    'millisec_ndigit', 'dup_qsize', 'key_idx', 'start_key_sp',
+    'latest_rows_sp'])
 
 
 def iter_tail_info(tailc):
@@ -419,16 +420,15 @@ def iter_tail_info(tailc):
         if cmd == 'table':
             fromc = src['table']
             send_term = tailc.get('send_term', DB_SEND_TERM)
-        elif cmd == 'flie':
-            fromc = src['file']
-            update_term = tailc.get('update_term', FILE_UPDATE_TERM)
-            send_term = tailc.get('send_term', FILE_SEND_TERM)
-
-        if cmd == 'table':
+            fromc = src['table']
             yield make_table_tail_info(tailc, fromc, pos_dir, scfg,
                                        lines_on_start, max_between_data,
                                        send_term)
-        if cmd == 'file':
+        elif cmd == 'file':
+            fromc = src['file']
+            update_term = tailc.get('update_term', FILE_UPDATE_TERM)
+            send_term = tailc.get('send_term', FILE_SEND_TERM)
+            fromc = src['file']
             yield make_file_tail_info(tailc, fromc, pos_dir, scfg,
                                       lines_on_start, max_between_data,
                                       send_term, update_term)
@@ -437,14 +437,17 @@ def iter_tail_info(tailc):
 def make_table_tail_info(tailc, tablec, pos_dir, scfg, lines_on_start,
                          max_between_data, send_term):
     dbc = tailc['db']
-    encoding = dbc['encoding']
+    encoding = dbc.get('encoding')
     datefmt = dbc['datefmt']
     millisec_ndigit = dbc.get('millisec_ndigit', 3)
 
     table = tablec['name']
     tag = tablec['tag']
-    key_col = tablec['key_col']
-    dup_qsize = tablec['dup_qsize']
+    start_key_sp = tablec.get('start_key_sp')
+    latest_rows_sp = tablec.get('latest_rows_sp')
+    key_col = tablec.get('key_col')
+    dup_qsize = dbc['dup_qsize']
+    key_idx = tablec.get('key_idx')
 
     tinfo = TableTailInfo(
         table=table,
@@ -458,7 +461,11 @@ def make_table_tail_info(tailc, tablec, pos_dir, scfg, lines_on_start,
         lines_on_start=lines_on_start,
         max_between_data=max_between_data,
         millisec_ndigit=millisec_ndigit,
-        dup_qsize=dup_qsize)
+        dup_qsize=dup_qsize,
+        start_key_sp=start_key_sp,
+        latest_rows_sp=latest_rows_sp,
+        key_idx=key_idx
+    )
     return tinfo
 
 
