@@ -39,8 +39,8 @@ git으로 소스를 clone 하고, 해당 디렉토리로 들어간 후 `build.ba
         debug: false
         service:
             # NOTE: Your service name
-            name: WDFwd
-            caption: WzDat Log / DB Forwarder
+            name: wfdwd
+            caption: Windows Data Forwarder
             # NOTE: Cron style schedule: m h dom mon dow
             schedule: "0 4 * * *"
             force_first_run: true
@@ -192,9 +192,9 @@ Unix 계열에서는 전통적으로 아래와 같은 식으로 로그 로테이
     log\mylog.txt.1
     log\mylog.txt.2
 
-이 경우 `log\mylog.txt`가 가장 최신 로그 파일이고, `mylog.txt.1`이 그 다음 최신, `mylog.txt.2`가 가장 오래된 로그이다.
+위에서 `log\mylog.txt`가 가장 최신 로그 파일이고, `mylog.txt.1`이 그 다음 최신, `mylog.txt.2`가 가장 오래된 로그이다.
 
-이때는 다음과 같이 설정한다.
+이 경우는 다음과 같이 설정한다.
 
     - file:
         dir: # LOG_DIR
@@ -476,15 +476,8 @@ DB 계정 ID 혹은 암호를 확인한다.
 #### DB 네트워크 확인
 wdfwd가 설치된 장비에서 DB로의 접속이 가능한지 확인한다.
 
-### DNS or IP?
-
-설정파일에서 장비의 주소를 기입할 때:
-
-- WzDat 서버(=로그 수집 서버)가 클라우드에 있는 경우 Cloud IP가 변할 수 있기에, 가급적 DNS이름으로 신청
-- 그러나 윈도우 서버에 DNS관련 기능의 추가가 불가능한 경우, 어쩔 수 없이 IP기반으로 해야한다.
-
 ### 전송이 자주 실패할 때
 L7 스위치의 ACK Flooding 정책에 따라 막히는 때가 있다. 시스템 관리자에 확인 후 예외 등록을 요청하자.
 
 ### Fluentd나 Kinesis로 테일링 시 네트워크가 불안정하면?
-포워더는 일정 횟수(5번)까지 재전송을 시도하고, 계속 실패하면 그 매시지를 버린다. 즉 로그 유실이 일어난다. 그후 다음 메시지를 받아와 전송을 시도한다. 만약, 네트워크가 안정화 되어 전송이 가능하게 되면 메시지를 정상적으로 보내게 된다.
+포워더는 일정 횟수(5번)까지 재전송을 시도하고, 계속 실패하면 그 매시지를 버린다. 즉 로그 유실이 일어난다. 그 후 다음 메시지를 받아와 전송을 시도한다. 만약, 네트워크가 안정화 되어 전송이 가능하게 되면 메시지를 정상적으로 보내게 된다.
