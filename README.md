@@ -1,6 +1,6 @@
 # wdfwd
 
-유닉스 계열의 OS에는 각종 로그를 포워딩하기 위한 좋은 솔루션들이 많이 있다. 그러나 윈도우를 위한 로그 포워더는 부족하다. wdfwd는 윈도우 서비스로 설치되어 파일 로그나 DB에 저장된 로그를 포워딩해준다.
+유닉스 계열의 OS에는 각종 로그를 포워딩하기 위한 좋은 솔루션들이 많이 있다. 그러나 윈도우를 위한 로그 포워더는 부족하다. wdfwd(Windows Data Forwarder)는 윈도우 서비스로 설치되어 파일 로그나 DB에 저장된 로그를 포워딩해준다.
 
 ## 특징
 
@@ -27,7 +27,7 @@ git으로 소스를 clone 하고, 해당 디렉토리로 들어간 후 `build.ba
 
 ## 기본 설정
 
-위에서 복사해둔 `config.yml`을  notepad로 열고 편집한다. (이때 항상 이것으로 오픈되도록 설정해두면 편리하다)
+위에서 복사해둔 `config.yml`을 notepad로 열고 편집한다. (이때 항상 이것으로 오픈되도록 설정해두면 편리하다)
 
 여러가지 값들이 있으나, 기본 값을 이용하고, 설명된 부분만 설정 후 이용하면 될것이다.
 
@@ -93,19 +93,18 @@ wdfwd 자체 로그 관련 설정이다.
         pos_dir: D:\wdfwd-temp\
         format: '(?P<dt_>\d+-\d+-\d+ \d+:\d+:\S+)\s(?P<level>[^:\s]+):?\s(?P<_json_>.+)’
         from:
-            # MyPCBang
             - file:
-                dir: D:\Web_Log\Billing.MyPCBang\Logs
+                dir: D:\WebLog\Billing\Logs
                 pattern: "[[]Error[]]*-*-*.log"
-                tag: billing.mypcbang.error
+                tag: billing.error
             - file:
-                dir: D:\Web_Log\Billing.MyPCBang\Logs
+                dir: D:\WebLog\Billing\Logs
                 pattern: "[[]Fatal[]]*-*-*.log"
-                tag: billing.mypcbang.fatal
+                tag: billing.fatal
         to:
-            fluent: ['52.79.170.169', 24224]
+            fluent: # [FLUENTD_SERVER_IP, FLUENTD_SERVER_PORT]
 
-### tailing 설정
+### tailing
 
 테일링에서 공통적으로 사용하는 설정이 이곳에 들어간다.
 
@@ -130,21 +129,22 @@ wdfwd 자체 로그 관련 설정이다.
 
 테일링의 대상이 DB에 있는 테이블인 경우 아래와 같이 `db` 섹션을 정의해 준다.
 
-    db:
-        connect:
-            driver: "{SQL Server}"
-            server: localhost
-            port:
-            database: # Target Database Name
-            trustcon: false
-            read_uncommit: true
-            uid: # DB User
-            passwd: # DB Password
-        encoding: UTF8
-        datefmt: "%Y-%m-%d %H:%M:%S.%f"
-        millisec_ndigit: 3
-        dup_qsize: 3
-        sys_schema: false
+    tailing:
+        db:
+            connect:
+                driver: "{SQL Server}"
+                server: localhost
+                port:
+                database: # Target Database Name
+                trustcon: false
+                read_uncommit: true
+                uid: # DB User
+                passwd: # DB Password
+            encoding: UTF8
+            datefmt: "%Y-%m-%d %H:%M:%S.%f"
+            millisec_ndigit: 3
+            dup_qsize: 3
+            sys_schema: false
 
 * `encoding` - DB의 캐릭터 인코딩
 * `datefmt` - DB의 일시(date time) 포맷
@@ -160,11 +160,53 @@ wdfwd 자체 로그 관련 설정이다.
 
 테일링의 대상이 파일인 경우.
 
-`dir` - 파일이 남는 디렉토리 경로
+    from:
+        - file:
+            dir: # LOG_DIR
+            pattern: mylog-*.txt
+            tag: myapp.mylog1
 
-`pattern` - 파일 이름의 패턴. [Unix 스타일의 경로명 패턴](https://docs.python.org/2/library/glob.html)을 받아 들인다.(`[`을 escape하기 위해 `[[]`을 사용하는 것에 주의)
+* `dir` - 로그 파일이 남는 디렉토리 경로
+* `pattern` - 파일 이름의 패턴. [Unix 스타일의 경로명 패턴](https://docs.python.org/2/library/glob.html)을 받아 들인다.(`[`을 escape하기 위해서는 `[[]`을 사용하는 것에 주의)
+* `tag` - Fluentd 용 태그
 
-`tag` - Fluentd/Kinesis 에서 참고할 태그
+wdfwd는 대상 디렉토리에서 패턴에 일치하는 로그 파일은 일단 대상 파일로 선택한다. 그 후 문자열 기준으로 내림차순 소팅하여 가장 첫번째의 것을 현재 기록되고 있는 로그로 보고 테일링을 시도한다. 예를 들어 다음과 같은 파일들이 있다면:
+
+    log\mylog-20160931.txt
+    log\mylog-20161001.txt
+    log\mylog-20161002.txt
+
+이것을 내림차순 소팅하면 아래와 같게 되고
+
+    log\mylog-20161002.txt
+    log\mylog-20161001.txt
+    log\mylog-20160931.txt
+
+첫 번째로 오는 `log\mylog-20161002.txt`을 현재 로그로 본다.
+
+##### 유닉스 스타일 로그 로테이션 대응
+
+유닉스 계열에서는 전통적으로 아래와 같은 식으로 로그 로테이션을 한다.
+
+    log\mylog.txt
+    log\mylog.txt.1
+    log\mylog.txt.2
+
+이 경우 `log\mylog.txt`가 가장 최신 로그 파일이고, `mylog.txt.1`이 그 다음 최신, `mylog.txt.2`가 가장 오래된 로그이다.
+
+이때는 다음과 같이 설정한다.
+
+    - file:
+        dir: # LOG_DIR
+        pattern: mylog.txt.*
+        latest: mylog.txt
+        reverse_order: true
+        tag: myapp.mylog2
+
+* `latest` - 바뀌지 않는 최신 파일을 명시적으로 지정한다.
+* `reverse_order` - `true`로 설정하면 문자열 기준으로 오름차순 소팅으로 바꾼다.
+
+이렇게 하면 wfdwd 가 최신 파일 순서대로 인식하여 처리하게 된다.
 
 ##### table
 
@@ -183,12 +225,12 @@ wdfwd 자체 로그 관련 설정이다.
 
 MS SQLServer에서 SP(Stored Procedure)를 써야만 한다면, 아래와 같이 설정할 수 있다.
 
-        - table:
-            name: Log2
-            start_key_sp: uspGetStartDatetime
-            latest_rows_sp: uspGetLatestRows
-            key_idx: 0
-            tag: wdfwd.dbtail2
+    - table:
+        name: Log2
+        start_key_sp: uspGetStartDatetime
+        latest_rows_sp: uspGetLatestRows
+        key_idx: 0
+        tag: wdfwd.dbtail2
 
 * `name` - 대상 테이블 이름
 * `start_key_sp` - 테일링을 시작할 키를 요청하는 SP. int형 인자를 받는데 이값은 lines_on_start가 건네진다.
@@ -204,11 +246,15 @@ MS SQLServer에서 SP(Stored Procedure)를 써야만 한다면, 아래와 같이
 
 Fluentd 서버로 보낸다. `[IP주소, 포트]` 형식을 따른다.
 
+    to:
+        fluent: [FLUENTD_SERVER_IP, FLUENTD_SERVER_PORT]
+
 ##### kinesis
 
 Kinesis 스트림으로 보낸다. 다음과 같은 형식을 따른다.
 
-    kinesis:
+    to:
+        kinesis:
             access_key: # AWS Access Key Id
             secret_key: # AWS Secret Access Key
             stream_name: # AWS Kinesis Stream Name
@@ -216,13 +262,23 @@ Kinesis 스트림으로 보낸다. 다음과 같은 형식을 따른다.
 
 *Kinesis 스트림으로 보낼 때는 파이썬의 [aws_kinesis_agg](https://pypi.python.org/pypi/aws_kinesis_agg/1.0.0)모듈을 사용해서 Aggregation된 형태로 전송된다. 따라서 Kinesis Comsumer 쪽에서 Deaggregation 작업이 필요하다.*
 
-## 복잡한 로그 파싱하기
+## 복잡한 로그 파일 파싱하기
+
+DB는 정규화된 로그가 남고 있겠지만, 파일에는 다양한 형태의 로그가 남을 수 있다. 여기서는 이를 파싱하는 방법을 설명한다.
 
 ### 파서 정의
 
 정규식이 너무 복잡해지거나, 여러가지 포맷이 있는 로그의 경우 `parser`를 정의하여 사용한다. 파서의 정의는 설정파일의 `tailing` 또는 `tailing/from/file`아래에 올 수 있다. 전자의 경우 모든 로그 파일에 적용되며, 후자의 경우 특정 파일에만 적용되는 파서이다.
 
-파서는 토큰, 그룹, 포맷으로 구성된다.
+파서는 토큰, 그룹, 포맷으로 구성된다. 크게 다음과 같은 형식을 가진다.
+
+    parser:
+        tokens:
+            ..
+        groups:
+            ..
+        formats:
+            ..
 
 #### 토큰
 토큰은 정규식의 기본 단위이다. 아래와 같이 '토큰명: 토큰 정규식`의 형태로 정의된다.
