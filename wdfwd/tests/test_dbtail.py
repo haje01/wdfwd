@@ -253,8 +253,8 @@ def test_dbtail_units(init, ttail):
 
         echoed = ttail.echo_file.getvalue().splitlines()
         assert len(echoed) == 15
-        assert echoed[0] == "{'dtime': '2016-11-07 09:30:05.100', "\
-            "'message': 'message 5'}"
+        assert echoed[0] == '{"dtime": "2016-11-07 09:30:05.100", '\
+            '"message": "message 5"}'
         pos, hashes = ttail.get_sent_pos(con)
         pos == "2016-11-07 09:30:19.100"
         assert len(hashes)

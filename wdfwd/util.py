@@ -371,7 +371,7 @@ FileTailInfo = namedtuple('FileTailInfo', [
 
 
 TableTailInfo = namedtuple('TableTailInfo', [
-    'table', 'tag', 'pos_dir', 'scfg', 'datefmt', 'key_col', 'send_term',
+    'table', 'tag', 'pos_dir', 'scfg', 'datefmt', 'send_term',
     'encoding', 'lines_on_start', 'max_between_data', 'col_names',
     'millisec_ndigit', 'dup_qsize', 'key_idx', 'start_key_sp',
     'latest_rows_sp'])
@@ -446,7 +446,8 @@ def make_table_tail_info(tailc, tablec, pos_dir, scfg, lines_on_start,
     start_key_sp = tablec.get('start_key_sp')
     latest_rows_sp = tablec.get('latest_rows_sp')
     dup_qsize = dbc['dup_qsize']
-    key_idx = tablec.get('key_idx')
+    col_names = tablec['col_names']
+    key_idx = tablec['key_idx']
 
     tinfo = TableTailInfo(
         table=table,
@@ -462,6 +463,7 @@ def make_table_tail_info(tailc, tablec, pos_dir, scfg, lines_on_start,
         dup_qsize=dup_qsize,
         start_key_sp=start_key_sp,
         latest_rows_sp=latest_rows_sp,
+        col_names=col_names,
         key_idx=key_idx
     )
     return tinfo

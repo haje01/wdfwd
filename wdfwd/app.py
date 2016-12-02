@@ -56,7 +56,8 @@ def start_tailing():
                 dup_qsize=ti.dup_qsize,
                 key_idx=ti.key_idx,
                 start_key_sp=ti.start_key_sp,
-                latest_rows_sp=ti.latest_rows_sp)
+                latest_rows_sp=ti.latest_rows_sp
+                )
         elif isinstance(ti, FileTailInfo):
             ldebug("start file tail - {}".format(ti))
 

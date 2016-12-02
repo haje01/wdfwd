@@ -599,15 +599,17 @@ class TableTailer(BaseTailer):
             str: Key value for this row
             str: string of json message
         """
-        mdict = dict(zip(self.col_names, cols))
+        if self.encoding:
+            mcols = zip(self.col_names,
+                        [c.strip().decode(self.encoding) if type(c) is str
+                         else c for c in cols])
+        else:
+            mcols = zip(self.col_names,
+                        [c.strip() if type(c) is str else c for c in cols])
+        mdict = dict(mcols)
         kv = self.conv_datetime(cols[self.key_idx])
         mdict[self.key_col] = kv
-        msg = str(mdict)
-
-        # convert encoding
-        if self.encoding:
-            msg = msg.decode(self.encoding).encode('utf8')
-        return kv, msg
+        return kv, mdict
 
     def send_new_lines(self, con, cursor, sent_hashq):
         """Send new lines to stream
@@ -633,9 +635,9 @@ class TableTailer(BaseTailer):
 
             for cols in cursor:
                 kv, msg = self.make_json(cols)
-                msgh = hash(msg)
+                msgh = hash(str(msg))
                 if sent_hashq is not None and msgh in sent_hashq:
-                    self.ldebug("dup msg: '{}'..".format(msg[:50]))
+                    self.ldebug("dup msg: '{}'..".format(str(msg)[:50]))
                     continue
 
                 self._send_newline(msg, msgs)
