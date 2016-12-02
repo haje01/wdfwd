@@ -1,8 +1,6 @@
 # wdfwd
 
-유닉스 계열의 OS에는 각종 로그를 포워딩하기 위한 좋은 솔루션들이 많이 있다. 그러나 윈도우를 위한 로그 포워더는 부족하다. wdfwd(=WzDat Log Forwarder)는 윈도우 서비스로 설치되어 파일 로그나 DB에 저장된 로그를 포워딩해준다.
-
-wdfwd는 [WzDat](https://github.com/haje01/wzdat)을 위해 만들어 졌으나, 다양한 로그 전송의 용도로 사용될 수 있다.
+유닉스 계열의 OS에는 각종 로그를 포워딩하기 위한 좋은 솔루션들이 많이 있다. 그러나 윈도우를 위한 로그 포워더는 부족하다. wdfwd는 윈도우 서비스로 설치되어 파일 로그나 DB에 저장된 로그를 포워딩해준다.
 
 ## 특징
 
@@ -75,7 +73,7 @@ wdfwd 자체 로그 관련 설정이다.
         root:
             level: DEBUG
             handlers: [file]
-        to_url: # Log Stream Server Info ex) [FLUENTD_SERVER_IP, FLUENTD_SERVER_PORT]
+        to_url: # Log Stream Endpoint ex) [FLUENTD_SERVER_IP, FLUENTD_SERVER_PORT]
 
 `handlers` > `file` > `filename` - wdfwd 자체 로그의 위치이다. 준비 단계에서 만들어둔 작업 폴더 아래 로그파일명 (예: `_wdfwd_log.txt` )까지의 풀 경로를 기입한다.
 
