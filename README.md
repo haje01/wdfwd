@@ -320,7 +320,7 @@ DB(= SQLServer)에 남고 있는 로그 테이블을 로컬 CSV 파일로 덤프
 * `key_idx` - 테이블의 키 컬럼의 인덱스. 로그성 테이블의 경우 일반적으로 `datetime` 타입의 컬럼이 지정된다.
 * `tag` - 목적지 스트리밍 서비스에서 사용될 분류 태그
 
-MS SQLServer에서 SP(Stored Proceedure)를 써야만 한다면, 아래와 같이 설정할 수 있다.
+MS SQLServer에서 SP(Stored Procedure)를 써야만 한다면, 아래와 같이 설정할 수 있다.
 
         - table:
             name: Log2
