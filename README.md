@@ -22,23 +22,14 @@ wdfwd는 [WzDat](https://github.com/haje01/wzdat)을 위해 만들어 졌으나,
 
 git으로 소스를 clone 하고, 해당 디렉토리로 들어간 후 `build.bat`를 실행한다. 정상적으로 빌드가 끝나면 `wdfwd\dist`폴더 아래에 빌드 결과물이 저장되어 있을 것이다. 이 폴더를 압축 후 서버로 복사하여 설치할 것이다.
 
-## rsync로 로그 동기
-
-rsync를 사용하면 서버에 있는 파일을 정해진 스케쥴로 목적지에 동기한다.
-
-### 방화벽 오픈
-
-서버의 경우 대부분 방화벽 뒤에 존재하기에, 서버에서 WzDat 서버(=로그 수집 서버)로 네트워크 인가(포트 `873`)가 필요하다.
-
 ### 설치
-
-#### cwRsync 설치
-[cwRsync](https://www.itefix.net/cwrsync)는 윈도우 용 rsync 클라이언트이다. 홈페이지에서 Free 버전을 받아 설치한다.
 
 #### wdfwd 설치
 1. 미리 폴더 전체로 압축해둔 wdfwd 압축파일을 푼다
 1. `files/default-config.yml`을 `config.yml`로 복사
 1. 임시 작업 폴더를 만든다 예) `c:\wdfwd-temp`
+
+## 기본 설정
 
 ### 설정하기
 위에서 복사해둔 `config.yml`을  notepad로 열고 편집한다. (이때 항상 이것으로 오픈되도록 설정해두면 편리하다)
@@ -100,126 +91,8 @@ wdfwd 자체 로그 관련 설정이다.
 
 `to_url` - wdfwd 자체 로그가 전송될 URL이다. 포워더 서비스가 잘 동작하고 있는지 확인할 때 용이하다.  `rsync-user@myserver.net::rsync-backup/myprj`형식으로 기입한다.
 
-#### tasks 설정
 
-여기에서 실재 로그 포워딩을 위한 작업(Task)를 설정한다. 작업에는 다음과 같은 종류가 있다.
-
-##### sync_folder
-
-지정된 폴더 전체를 동기한다. 로그 전용 폴더가 있으면 그것을 지정하면 된다.
-
-        # Plain folder sync
-        - sync_folder:
-            folder: # TARGET-FOLDER-PATH ex) C:\MyApp\slog
-            to_url: # RSYNC-SERVER-URL-FOR-LOG ex) rsync-user@myserver.net::rsync-backup/myprj/mysvr/log
-
-`folder` - 동기할 대상 폴더
-
-`to_url` - 대상 폴더가 전송될 URL이다. `rsync-user@myserver.net::rsync-backup/myprj/mysvr/log`형식으로 기입한다.
-
-
-##### sync_files
-
-지정된 패턴에 맞는 파일들만 동기한다. 덤프 파일 등의 동기에 사용한다.
-
-        # (Recursive) file sync with filename pattern
-        - sync_files:
-            base_folder: # TARGET-FOLDER-PATH ex) C:\MyApp\dump
-            filename_pattern: # TARGET-FILE-PATTERN ex) "*.dmp"
-            recurse: true
-            # rsync server url
-            to_url: # RSYNC-SERVER-URL-FOR-DUMP ex) rsync-user@myserver.net::rsync-backup/myprj/mysvr/dump
-
-`base_folder` - 파일을 찾기위한 기본 폴더
-
-`filename_pattern` - 대상 파일의 패턴 ( 예: `"*.dmp"`)
-
-`recurse` - 하위 폴더로 재귀적으로 검색할 지 여부
-
-`to_url` - 대상 파일이 전송될 URL이다. `rsync-user@myserver.net::rsync-backup/myprj/mysvr/dump`형식으로 기입한다.
-
-##### sync_db_dump
-
-DB(= SQLServer)에 남고 있는 로그 테이블을 로컬 CSV 파일로 덤프 후, 그것을 포워딩한다.
-
-        # Dump DB to CSVs, then sync them
-        - sync_db_dump:
-            # NOTE: Dump folder where DB dumped .csv files are located.
-            folder: # DUMP-TARGET-FOLDER-PATH ex) C:\wdfwd-temp
-            field_delimiter: "\t"
-
-            db:
-                # NOTE: Local DB connection info
-                connect:
-                    driver: "{SQL Server}"
-                    server: .\SQLEXPRESS
-                    port:
-                    database: MyApp
-                    trustcon: true
-                    read_uncommit: true
-                    uid:
-                    passwd:
-                fetchsize: 1000
-                table:
-                    # NOTE: Table names to be dumped.
-                    names:
-                        - BIP.TblItemCreateDeleteRecord_
-                        - BIP.TblItemEnfcStat_
-                        - LogOpr.TblHackLogOpr_
-                        - LogOpr.TblLogOpr_
-                        - LogOpr.TblMissionPlayLogOpr_
-                    # for daily tables
-                    date_pattern: ".*_(\\d{8})"
-                    date_format: "%Y%m%d"
-                    # for non-daily tables only
-                    #   date_column: 'LogTime'
-                    skip_last: true
-                sys_schema: false
-                type_encodings:
-                    # specify encoding for a db type when conversion needed
-                    # ex) - {type: 'varchar', encoding: 'cp949'}
-                    # ex) - {type: 'varchar', func: 'lambda x: x.encode('utf8')}
-            # rsync server url
-            to_url: # RSYNC-SERVER-URL-FOR-DBLOG ex) rsync-user@myserver.net::rsync-backup/myprj/mysvr/dblog
-
-`folder` - DB에서 덤프한 CSV 파일이 임시적으로 저장될 폴더. 준비 과정에서 만들어둔 임시 작업 폴더 (예: `C:\wdfwd-temp`)를 기입한다.
-`field_delimiter` - CSV파일의 구분자. Tab문자(`"\t"`)을 사용하는 것이 좋다.
-
-`db` > `connect` > `server` - DB 서버의 IP
-
-`db` > `connect` > `port` - DB 서버의 포트
-
-`db` > `connect` > `database` - DB 이름
-
-`db` > `connect` > `read_uncommit` - DB 서버가 로컬에 있는 경우만 `true` 아니면 `false`
-
-`db` > `connect` > `trustcon` - 테이블을 읽는 동안 락이 걸리지 않도록 `true`로 해두는 것이 좋다.
-
-`db` > `connect` > `uid` - DB 계정 ID
-
-`db` > `connect` > `passwd`- DB 계정 암호
-
-`db` > `fetchsize` - 한 번에 읽어올 행 수
-
-`db` > `table` > `names` - 읽어올 테이블 명 리스트
-
-`db` > `table` > `date_pattern` - 날자 별로 구분된 테이블의 경우, 날자를 찾기 위한 정규표현식 패턴
-
-`db` > `table` > `date_format` - 날자 별로 구분된 테이블의 경우, 날자 형식
-
-`db` > `table` > `date_column` - 날자 별로 구분된 테이블이 아닌 경우, 날자가 있는 컬럼 명
-
-`db` > `table` > `skip_last` - 날자 별로 구분된 테이블의 경우, 가장 최근(=오늘)의 테이블의 덤프는 생략하기
-
-`db` > `type_encodings` - 컬럼의 타입 별로 인코딩을 지정
-	예) `{type: 'varchar', encoding: 'cp949'}`
-	예) `{type: 'varchar', func: 'lambda x: x.encode('utf8')}`
-
-`db` > `to_url` - CSV 파일이 전송될 URL이다. `rsync-user@myserver.net::rsync-backup/myprj/mysvr/dblog`형식으로 기입한다.
-
-
-## 실시간 로그 테일링(Tailing)
-
+## 실시간 로그 테일링(Tailing) 설정
 
 테일링은 지정된 로그 파일이나 로그성 DB 테이블의 변경된 끝 부분 만을 네트워크를 통해 전송한다.
 
@@ -288,7 +161,7 @@ DB(= SQLServer)에 남고 있는 로그 테이블을 로컬 CSV 파일로 덤프
 * `encoding` - DB의 캐릭터 인코딩
 * `datefmt` - DB의 일시(date time) 포맷
 * `millisec_ndigit` - 밀리세컨드 부분의 자리수 (SQLServer의 경우 3이다.)
-* `dup_qsize` - 최근에 보낸 로그 문자열의 해쉬를 기억해서 중복 전송을 방지하는 큐의 크기. 로그의 datetime 포맷 단위로 최대 얼마나 많은 로그가 찍힐 수 있는지가 기준. 예를 들어 로그의 datetime이 초 단위이고, 1초에 기록될 수 있는 최대 로그 행 수가 1000이라면 `dup_qsize`는 1000을 주어야 한다. 즉, datetime이 이 정밀하지 않고, 찍히는 로그가 많을 수록 더 큰 값이 필요하다. 이 값이 클수록 비교해야하는 해쉬 값이 많아져 메시지 전송에 시간이 걸린다.
+* `dup_qsize` - 최근에 보낸 로그 문자열의 해쉬를 기억해서 중복 전송을 방지하는 큐의 크기. 로그의 datetime 포맷 단위로 최대 얼마나 많은 로그가 찍힐 수 있는지가 기준. 예를 들어 로그의 datetime이 초 단위이고, 1초에 기록될 수 있는 최대 로그 행 수가 1000이라면 `dup_qsize`는 1000을 주어야 한다. 즉, datetime이 이 정밀하지 않고, 찍히는 로그가 많을 수록 더 큰 값이 필요하다. 이 값이 클수록 비교해야 하는 해쉬 값이 많아져 메시지 전송에 시간이 걸린다.
 * `sys_schema` - 대상 테이블 이름에 네임 스키마가 명시되어 있는지 여부
 
 #### from
