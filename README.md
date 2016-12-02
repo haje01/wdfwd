@@ -77,7 +77,7 @@ wdfwd 자체 로그 관련 설정이다.
 
 `handlers` > `file` > `filename` - wdfwd 자체 로그의 위치이다. 준비 단계에서 만들어둔 작업 폴더 아래 로그파일명 (예: `_wdfwd_log.txt` )까지의 풀 경로를 기입한다.
 
-`to_url` - wdfwd 자체 로그가 전송될 로그 스트림 서버의 정보이다. AWS Kinesis도 가능하지만, 대개 Fluentd를 사용한다. Fluentd의 경우 [Fluentd 서버 IP, Fluentd 서버 포트]로 설정한다.
+`to_url` - wdfwd 자체 로그가 전송될 로그 스트림 서버의 정보이다. AWS Kinesis도 가능하지만, 대개 Fluentd를 사용한다. Fluentd의 경우 `[Fluentd 서버 IP, Fluentd 서버 포트]` 형식으로 설정한다.
 
 
 ## 실시간 로그 테일링(Tailing) 설정
@@ -184,9 +184,9 @@ wdfwd는 대상 디렉토리에서 패턴에 일치하는 로그 파일은 일�
 
 첫 번째로 오는 `log\mylog-20161002.txt`을 현재 로그로 본다.
 
-##### 유닉스 스타일 로그 로테이션 대응
+###### Unix 스타일 로그 로테이션 대응
 
-유닉스 계열에서는 전통적으로 아래와 같은 식으로 로그 로테이션을 한다.
+Unix 계열에서는 전통적으로 아래와 같은 식으로 로그 로테이션을 한다.
 
     log\mylog.txt
     log\mylog.txt.1
