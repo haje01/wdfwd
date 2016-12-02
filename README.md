@@ -6,12 +6,10 @@ wdfwd는 [WzDat](https://github.com/haje01/wzdat)을 위해 만들어 졌으나,
 
 ## 특징
 
-- 윈도우 용 rsync를 통한 압축/차분(Differential) 로그 포워딩
-- [Fluentd](http://www.fluentd.org) 또는 [AWS Kinesis](https://aws.amazon.com/ko/kinesis/) 로의 실시간 로그 테일링
+- 로그 파일 또는 DB(SQLServer)에 저장된 로그 테이블을 실시간 전송
+- [Fluentd](http://www.fluentd.org) 또는 [AWS Kinesis](https://aws.amazon.com/ko/kinesis/) 로의 전송 지원
 - 윈도우 서비스 방식으로 설치되어 리부팅 시 자동 시작
-- 다양한 형식의 로그를 포워딩
-- DB(SQLServer)에 저장된 로그 테이블을 덤프 후 포워딩
-- crontab 형식의 스케쥴 표기
+- 다양한 형식의 로그를 파싱
 
 ## 빌드
 
@@ -22,21 +20,20 @@ wdfwd는 [WzDat](https://github.com/haje01/wzdat)을 위해 만들어 졌으나,
 
 git으로 소스를 clone 하고, 해당 디렉토리로 들어간 후 `build.bat`를 실행한다. 정상적으로 빌드가 끝나면 `wdfwd\dist`폴더 아래에 빌드 결과물이 저장되어 있을 것이다. 이 폴더를 압축 후 서버로 복사하여 설치할 것이다.
 
-### 설치
+## 설치
 
-#### wdfwd 설치
+### wdfwd 설치
 1. 미리 폴더 전체로 압축해둔 wdfwd 압축파일을 푼다
 1. `files/default-config.yml`을 `config.yml`로 복사
 1. 임시 작업 폴더를 만든다 예) `c:\wdfwd-temp`
 
 ## 기본 설정
 
-### 설정하기
 위에서 복사해둔 `config.yml`을  notepad로 열고 편집한다. (이때 항상 이것으로 오픈되도록 설정해두면 편리하다)
 
 여러가지 값들이 있으나, 기본 값을 이용하고, 설명된 부분만 설정 후 이용하면 될것이다.
 
-#### app 설정
+### app 설정
 
 어플리케이션 관련 설정이다.
 
@@ -49,9 +46,6 @@ git으로 소스를 clone 하고, 해당 디렉토리로 들어간 후 `build.ba
             # NOTE: Cron style schedule: m h dom mon dow
             schedule: "0 4 * * *"
             force_first_run: true
-        rsync_path: # RSYNC-EXE-FILE-PATH
-        # Limit rsync bandwidth in KB/Sec. 0 for no limit, skip for default
-        rsync_bwlimit: 5120  # 5 MByte/Sec, Default
 
 `service` > `name` - 서비스로 등록될 이름
 
@@ -59,11 +53,7 @@ git으로 소스를 clone 하고, 해당 디렉토리로 들어간 후 `build.ba
 
 `service` > `force_first_run` - 최초 서비스 실행 시 무조건 한 번 동작한다.
 
-`rsync_path` - cwRsync 폴더 내 `rsync.exe`까지의 풀 경로명으로 지정
-
-`rsync_bwlimit` - 한꺼번에 많은 로그를 전송하면 서비스 장비의 네트워크에 무리가 갈 수 있기에, 대역폭 제한을 걸 수 있다. 기본은 초당 5M 바이트이다.
-
-#### log 설정
+### log 설정
 
 wdfwd 자체 로그 관련 설정이다.
 
@@ -85,18 +75,18 @@ wdfwd 자체 로그 관련 설정이다.
         root:
             level: DEBUG
             handlers: [file]
-        to_url: # RSYNC-SERVER-URL-FOR-LOG ex) rsync-user@myserver.net::rsync-backup/myprj
+        to_url: # Log Stream Server Info ex) [FLUENTD_SERVER_IP, FLUENTD_SERVER_PORT]
 
 `handlers` > `file` > `filename` - wdfwd 자체 로그의 위치이다. 준비 단계에서 만들어둔 작업 폴더 아래 로그파일명 (예: `_wdfwd_log.txt` )까지의 풀 경로를 기입한다.
 
-`to_url` - wdfwd 자체 로그가 전송될 URL이다. 포워더 서비스가 잘 동작하고 있는지 확인할 때 용이하다.  `rsync-user@myserver.net::rsync-backup/myprj`형식으로 기입한다.
+`to_url` - wdfwd 자체 로그가 전송될 로그 스트림 서버의 정보이다. AWS Kinesis도 가능하지만, 대개 Fluentd를 사용한다. Fluentd의 경우 [Fluentd 서버 IP, Fluentd 서버 포트]로 설정한다.
 
 
 ## 실시간 로그 테일링(Tailing) 설정
 
 테일링은 지정된 로그 파일이나 로그성 DB 테이블의 변경된 끝 부분 만을 네트워크를 통해 전송한다.
 
-테일링을 사용하면 rsync를 사용할 때 보다 설정이 간단하고, 무엇보다 실시간으로 로그를 전송할 수 있다. 테일링의 목적지는 Fluentd와 AWS Kinesis를 사용할 수 있다. 이를 위해서는 각각 Fluentd가 설치된 로그 중계 용 서버 또는 AWS Kinesis Stream + Kinesis Comsumer가 필요하다.
+테일링을 사용하면 실시간으로 로그를 전송할 수 있다. Fluentd와 AWS Kinesis로 전송할 수 있다. 이를 위해서는 각각 Fluentd가 설치된 로그 중계 용 서버 또는 AWS Kinesis Stream + Kinesis Comsumer가 필요하다.
 
 설정 파일은 `app`과 `log` 섹션은 거의 비슷하나, `tailing` 섹션이 추가되었다. 아래는 간단한 파일 테일링의 예이다.
 
@@ -415,7 +405,7 @@ json 파싱된 결과는 다른 토큰의 결과와 합쳐지는데, 이때 같�
 
 ### 네트워크 문제
 
-rsync를 통한 전송이 안되는 경우는 네트워크 방화벽 설정을 다시 확인하고, 윈도우 내 방화벽도 확인한다.
+로그 스트림 서비스로 전송이 안되는 경우는 네트워크 방화벽 설정을 다시 확인하고, 윈도우 내 방화벽도 확인한다.
 
 #### 윈도우 방화벽 설정 (wf.msc)
 - '공용 프로필’에서 아웃바운드 연결이 허용되어 있지 않으면, 아웃 바운드 규칙 클릭 > 프로필로 필터링 > 도메일 프로필로 필터링으로 등록된 것이 있는지 확인한다.
