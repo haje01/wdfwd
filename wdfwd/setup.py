@@ -30,11 +30,11 @@ class Target:
         self.version = "0.1.3"
         self.company_name = "Webzen"
         self.copyright = "Copyright (C) 2016 Webzen"
-        self.name = "WzDat Forwarder"
+        self.name = "Windows Data Forwarder"
 
 
 target = Target(
-    description="A Log / DB Forwarder for WzDat",
+    description="Windows Data Forwarder",
     modules=['wdfwd_svc'],
     cmdline_style='pywin32',
 )

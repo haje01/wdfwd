@@ -2,8 +2,8 @@ app:
     debug: false
     service:
         # NOTE: Your service name
-        name: WDFwd
-        caption: WzDat Log / DB Forwarder
+        name: wdfwd
+        caption: Windows Data Forwarder
         # NOTE: Cron style schedule: m h dom mon dow
         schedule: "0 4 * * *"
         force_first_run: true
@@ -38,7 +38,7 @@ tailing:
     # max_read_buffer: default) 2097152
     file_encoding: # target file encoding  ex) cp949
     pos_dir: # TAIL-POS-FOLDER-PATH ex) C:\wdfwd-temp
-    format: # regular expression for log line. 
+    format: # regular expression for log line.
             # 'dt_' and ('_json_' or '_text_')
             # ex) '(?P<dt_>\d+-\d+-\d+ \d+:\d+:\S+)\s(?P<level>\S+):\s(?P<_json_>.+)'
     order_ptrn: # explicit name pattern for file ordering
@@ -77,7 +77,7 @@ tasks:
         recurse: true
         # rsync server url
         to_url: # RSYNC-SERVER-URL-FOR-DUMP ex) rsync-user@myserver.net::rsync-backup/myprj/mysvr/dump
- 
+
     # Dump DB to CSVs, then sync them
     - sync_db_dump:
         # NOTE: Dump folder where DB dumped .csv files are located.

@@ -2,8 +2,8 @@ app:
     debug: true
     service:
         # NOTE: Your service name
-        name: WDFwdTest
-        caption: WzDat Log / DB Test Forwarder
+        name: wdfwd_test
+        caption: Windows Data Forwarder
         # NOTE: Cron style schedule: m h dom mon dow
         schedule: "0 4 * * *"
         force_first_run: true
