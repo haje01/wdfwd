@@ -47,7 +47,7 @@ def start_tailing():
                 ti.pos_dir,
                 ti.scfg,
                 ti.datefmt,
-                ti.key_col,
+                ti.col_names,
                 send_term=ti.send_term,
                 encoding=ti.encoding,
                 lines_on_start=ti.lines_on_start,

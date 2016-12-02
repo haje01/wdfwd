@@ -280,14 +280,12 @@ DB(= SQLServer)에 남고 있는 로그 테이블을 로컬 CSV 파일로 덤프
             uid: # DB User
             passwd: # DB Password
         encoding: UTF8
-        delimiter: '\t'
         datefmt: "%Y-%m-%d %H:%M:%S.%f"
         millisec_ndigit: 3
         dup_qsize: 3
         sys_schema: false
 
 * `encoding` - DB의 캐릭터 인코딩
-* `delimiter` - 컬럼 구분자
 * `datefmt` - DB의 일시(date time) 포맷
 * `millisec_ndigit` - 밀리세컨드 부분의 자리수 (SQLServer의 경우 3이다.)
 * `dup_size` - 같은 일시의 로그 문자열의 해쉬를 기억해서 중복을 제거할 큐의 크기. 로그의 일시 포맷이 정밀하지 않고, 찍히는 로그가 많을 수록 더 큰 값이 필요하다. (기본은 100)
@@ -313,11 +311,13 @@ DB(= SQLServer)에 남고 있는 로그 테이블을 로컬 CSV 파일로 덤프
 
     - table:
         name: Log1
-        key_col: dtime
+        col_names: ['dtime', 'message']
+        key_idx: 0
         tag: wdfwd.dbtail1
 
 * `name` - 대상 테이블 이름
-* `key_col` - 테이블의 키 컬럼명. 로그성 테이블의 경우 일반적으로 `datetime` 타입의 컬럼이 지정된다.
+* `col_names` - 테이블의 컬럼 이름들
+* `key_idx` - 테이블의 키 컬럼의 인덱스. 로그성 테이블의 경우 일반적으로 `datetime` 타입의 컬럼이 지정된다.
 * `tag` - 목적지 스트리밍 서비스에서 사용될 분류 태그
 
 MS SQLServer에서 SP(Stored Proceedure)를 써야만 한다면, 아래와 같이 설정할 수 있다.

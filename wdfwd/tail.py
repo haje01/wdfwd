@@ -301,7 +301,7 @@ class BaseTailer(object):
         """
         self.ldebug("_send_newline {}".format(msg))
         ts = int(time.time())
-        self.may_echo(ts, msg)
+        self.may_echo(msg)
 
         msgs.append((ts, msg))
         if len(msgs) >= BULK_SEND_SIZE:
@@ -348,9 +348,14 @@ class BaseTailer(object):
         bulk = [msgpack.packb((tag, ts, data)) for ts, data in msgs]
         return ''.join(bulk)
 
-    def may_echo(self, ts, line):
+    def may_echo(self, line):
+        """Echo sent message for debugging
+
+        Args:
+            line: Sent message
+        """
         if self.echo_file:
-            self.echo_file.write("{} {}\n".format(ts, line))
+            self.echo_file.write('{}\n'.format(line))
             self.echo_file.flush()
 
     def _kinesis_put(self, msgs):
@@ -407,11 +412,12 @@ class BaseTailer(object):
 
 class TableTailer(BaseTailer):
 
-    def __init__(self, dbcfg, table, tag, pdir, stream_cfg, datefmt, key_col,
+    def __init__(self, dbcfg, table, tag, pdir, stream_cfg, datefmt, col_names,
+                 key_idx,
                  send_term=DB_SEND_TERM, max_send_fail=None, echo=False,
                  encoding=None, lines_on_start=None, max_between_data=None,
-                 millisec_ndigit=None, dup_qsize=None, delim='\t',
-                 start_key_sp=None, latest_rows_sp=None, key_idx=None):
+                 millisec_ndigit=None, dup_qsize=None,
+                 start_key_sp=None, latest_rows_sp=None):
         """init TableTailer"""
         super(TableTailer, self).__init__(tag, pdir, stream_cfg,
                                           send_term,
@@ -421,10 +427,11 @@ class TableTailer(BaseTailer):
         self.dbcfg = dbcfg
         self.table = table
         self.datefmt = datefmt
+        self.col_names = col_names
+        self.key_idx = key_idx
+        self.key_col = col_names[key_idx]
         self.millisec_ndigit = millisec_ndigit
-        self.key_col = key_col
         self.dup_qsize = DB_DUP_QSIZE if dup_qsize is None else dup_qsize
-        self.delim = delim
         # If SP is used, both start_key_sp & latest_rows_sp exist should exist.
         assert (start_key_sp and latest_rows_sp) or (not start_key_sp and
                                                      not latest_rows_sp)
@@ -433,11 +440,6 @@ class TableTailer(BaseTailer):
         self.use_sp = start_key_sp is not None
         self.linfo("  start_key_sp: {}, latest_rows_sp: {}".
                    format(start_key_sp, latest_rows_sp))
-        if self.use_sp:
-            assert key_idx is not None
-            self.key_idx = key_idx
-        else:
-            self.key_idx = None
 
     def _store_key_idx_once(self, con):
         """Store key column index once.
@@ -585,6 +587,28 @@ class TableTailer(BaseTailer):
             netok = False
         return scnt, netok
 
+    def make_json(self, cols):
+        """Return json from row columns
+
+        Note: Fix datetime format, change encoding together.
+
+        Args:
+            cols: Selected row columns
+
+        Returns:
+            str: Key value for this row
+            str: string of json message
+        """
+        mdict = dict(zip(self.col_names, cols))
+        kv = self.conv_datetime(cols[self.key_idx])
+        mdict[self.key_col] = kv
+        msg = str(mdict)
+
+        # convert encoding
+        if self.encoding:
+            msg = msg.decode(self.encoding).encode('utf8')
+        return kv, msg
+
     def send_new_lines(self, con, cursor, sent_hashq):
         """Send new lines to stream
 
@@ -608,12 +632,7 @@ class TableTailer(BaseTailer):
             msgs = []
 
             for cols in cursor:
-                kv = self.conv_datetime(cols[self.key_idx])
-                msg = self.delim.join([str(c) for c in cols])
-                # convert encoding
-                if self.encoding:
-                    msg = msg.decode(self.encoding).encode('utf8')
-
+                kv, msg = self.make_json(cols)
                 msgh = hash(msg)
                 if sent_hashq is not None and msgh in sent_hashq:
                     self.ldebug("dup msg: '{}'..".format(msg[:50]))

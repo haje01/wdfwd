@@ -129,13 +129,12 @@ def _ttail(no, _tcfg=None):
     send_term = ltcfg['send_term']
     pos_dir = ltcfg['pos_dir']
     datefmt = dcfg['datefmt']
-    delimiter = dcfg['delimiter']
     dup_qsize = dcfg['dup_qsize']
 
     ainfo = finfo[no - 1]['table']
     table = ainfo['name']
     tag = ainfo['tag']
-    key_col = ainfo.get('key_col')
+    col_names = ainfo['col_names']
     enc = dcfg['encoding']
     start_key_sp = ainfo.get('start_key_sp')
     latest_rows_sp = ainfo.get('latest_rows_sp')
@@ -149,8 +148,8 @@ def _ttail(no, _tcfg=None):
         pos_dir,
         fcfg,
         datefmt,
-        key_col,
-        delim=delimiter,
+        col_names,
+        key_idx,
         send_term=send_term,
         encoding=enc,
         millisec_ndigit=millsec_nd,
@@ -158,7 +157,6 @@ def _ttail(no, _tcfg=None):
         dup_qsize=dup_qsize,
         start_key_sp=start_key_sp,
         latest_rows_sp=latest_rows_sp,
-        key_idx=key_idx,
         echo=True)
     return tail
 
@@ -199,6 +197,8 @@ def test_dbtail_units(init, ttail):
     assert len(ttail.saddr) > 0
     assert ttail.max_between_data > 0
     assert ttail.encoding == 'UTF8'
+    assert ttail.col_names == ['dtime', 'message']
+    assert ttail.key_idx == 0
     assert ttail.key_col == 'dtime'
     assert ttail.dup_qsize == 3
 
@@ -251,7 +251,10 @@ def test_dbtail_units(init, ttail):
         assert scnt == 5
         assert netok
 
-        assert len(ttail.echo_file.getvalue().splitlines()) == 15
+        echoed = ttail.echo_file.getvalue().splitlines()
+        assert len(echoed) == 15
+        assert echoed[0] == "{'dtime': '2016-11-07 09:30:05.100', "\
+            "'message': 'message 5'}"
         pos, hashes = ttail.get_sent_pos(con)
         pos == "2016-11-07 09:30:19.100"
         assert len(hashes)
