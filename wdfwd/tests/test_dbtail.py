@@ -24,6 +24,26 @@ POS_DIR = tcfg['pos_dir']
 START_DATE = datetime(2016, 11, 7, 9, 30, 0)
 NUM_FILL_LINE = 10
 
+# -- Stored Procedures --
+#
+# USE DBTailTest
+# GO
+# CREATE PROCEDURE uspGetStartDatetime
+#     @Count INTEGER
+# AS
+#     SELECT TOP(1) dtime FROM
+#         (SELECT TOP(@Count) dtime FROM Log2 ORDER BY dtime DESC) a
+#     ORDER BY a.dtime;
+# GO
+
+# USE DBTailTest
+# GO
+# CREATE PROCEDURE uspGetLatestRows
+#     @Dtime DATETIME
+# AS
+#     SELECT TOP 10 * FROM Log2 WHERE dtime >= @Dtime;
+# GO
+
 
 @pytest.fixture(scope='function')
 def rmpos():
@@ -253,8 +273,8 @@ def test_dbtail_units(init, ttail):
 
         echoed = ttail.echo_file.getvalue().splitlines()
         assert len(echoed) == 15
-        assert echoed[0] == '{"dtime": "2016-11-07 09:30:05.100", '\
-            '"message": "message 5"}'
+        assert echoed[0] == "{'dtime': '2016-11-07 09:30:05.100', "\
+            "'message': u'message 5'}"
         pos, hashes = ttail.get_sent_pos(con)
         pos == "2016-11-07 09:30:19.100"
         assert len(hashes)
@@ -308,3 +328,11 @@ def test_dbtail_sp(init, ttail2):
         assert 5 == scnt
         pos = ttail2.get_sent_pos(con)
         assert '2016-11-07 09:30:09.100' == pos[0]
+
+        # test repeating send
+        fill_table(con, 2, 20, 10)
+        ttail2.max_repeat_send = 1
+        scnt, netok = ttail2.may_send_newlines(t + 1, con)
+        assert 18 == scnt
+        pos = ttail2.get_sent_pos(con)
+        assert '2016-11-07 09:30:27.100' == pos[0]

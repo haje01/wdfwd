@@ -440,6 +440,8 @@ class TableTailer(BaseTailer):
         self.use_sp = start_key_sp is not None
         self.linfo("  start_key_sp: {}, latest_rows_sp: {}".
                    format(start_key_sp, latest_rows_sp))
+        self.repeat_send = True
+        self.max_repeat_send = 0
 
     def _store_key_idx_once(self, con):
         """Store key column index once.
@@ -528,6 +530,10 @@ class TableTailer(BaseTailer):
     def may_send_newlines(self, cur, econ=None):
         """Try to send new lines if time has passed enough.
 
+        Notes:
+            If repeat_send is True, it will continue to send until there is no
+            data to send.
+
         Args:
             cur: Current time stamp.
             econ(optional): Externally supplied DB Connection.
@@ -552,7 +558,23 @@ class TableTailer(BaseTailer):
                     self.lwarning("Target table '{}' not exists".format(
                                   self.table))
                     return None, None
-                return self._may_send_newlines(con)
+
+                tscnt = 0
+                cnt = 0
+                while True:
+                    scnt, netok = self._may_send_newlines(con)
+                    tscnt += scnt
+                    if not netok:
+                        self.lwarning("Network error. stop")
+                        break
+                    cnt += 1
+                    self.ldebug("{} - sent {}".format(cnt, scnt))
+                    if cnt > self.max_repeat_send:
+                        self.ldebug("  over max_repeat_send. stop")
+                        break
+                    else:
+                        self.ldebug("  resend")
+                return tscnt, netok
 
             if econ is None:
                 with DBConnector(self.dbcfg, self.ldebug, self.lerror) as con:
@@ -620,8 +642,8 @@ class TableTailer(BaseTailer):
             sent_hashq: Hashes of sent messages.
 
         Note:
-            cursor has selected messages from last sent date time. They'll be
-            checked by sent hashes to prevent duplicate messages.
+            cursor has selected messages from last sent date time. They'll
+            be checked by sent hashes to prevent duplicate messages.
 
         Returns:
             int: Number of sent lines
@@ -637,7 +659,7 @@ class TableTailer(BaseTailer):
                 kv, msg = self.make_json(cols)
                 msgh = hash(str(msg))
                 if sent_hashq is not None and msgh in sent_hashq:
-                    self.ldebug("dup msg: '{}'..".format(str(msg)[:50]))
+                    self.ldebug("dup msg: '{}'".format(msg))
                     continue
 
                 self._send_newline(msg, msgs)
@@ -717,6 +739,7 @@ class TableTailer(BaseTailer):
         """
         try:
             pos, hashes = pos.split('\t')
+            hashes = hashes.strip()
         except ValueError:
             return None
         if len(hashes) == 0:
