@@ -13,7 +13,7 @@ TEARDOWN_KILL = False
 
 def get_service():
     c = wmi.WMI()
-    services = [s for s in c.Win32_Service() if s.Name == 'WDFwdTest']
+    services = [s for s in c.Win32_Service() if s.Name == 'wdfwd_test']
     if len(services) > 0:
         return services[0]
 
@@ -58,7 +58,7 @@ def test_basic():
     os.environ['WDFWD_CFG'] = cfg_path
     cfg = get_config()
     appc = cfg['app']
-    assert appc['service']['name'] == 'WDFwdTest'
+    assert appc['service']['name'] == 'wdfwd_test'
 
     # test service isntall
     with ChangeDir('wdfwd', 'test_dist'):

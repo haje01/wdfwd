@@ -41,7 +41,7 @@ NUM_FILL_LINE = 10
 # CREATE PROCEDURE uspGetLatestRows
 #     @Dtime DATETIME
 # AS
-#     SELECT TOP 10 * FROM Log2 WHERE dtime >= @Dtime;
+#     SELECT TOP 10 * FROM Log2 WHERE dtime > @Dtime;
 # GO
 
 
@@ -149,7 +149,6 @@ def _ttail(no, _tcfg=None):
     send_term = ltcfg['send_term']
     pos_dir = ltcfg['pos_dir']
     datefmt = dcfg['datefmt']
-    dup_qsize = dcfg['dup_qsize']
 
     ainfo = finfo[no - 1]['table']
     table = ainfo['name']
@@ -174,7 +173,6 @@ def _ttail(no, _tcfg=None):
         encoding=enc,
         millisec_ndigit=millsec_nd,
         lines_on_start=lines_on_start,
-        dup_qsize=dup_qsize,
         start_key_sp=start_key_sp,
         latest_rows_sp=latest_rows_sp,
         echo=True)
@@ -220,15 +218,9 @@ def test_dbtail_units(init, ttail):
     assert ttail.col_names == ['dtime', 'message']
     assert ttail.key_idx == 0
     assert ttail.key_col == 'dtime'
-    assert ttail.dup_qsize == 3
 
-    pos, hashes = ttail.parse_sent_pos("2016-11-07 09:30:09.100\t")
+    pos = ttail.parse_sent_pos("2016-11-07 09:30:09.100")
     assert pos == "2016-11-07 09:30:09.100"
-    assert hashes == []
-
-    pos, hashes = ttail.parse_sent_pos("2016-11-07 09:30:09.100\t1, 2, 3")
-    assert pos == "2016-11-07 09:30:09.100"
-    assert hashes == [1, 2, 3]
 
     with DBConnector(tcfg) as con:
         assert ttail.is_table_exist(con)
@@ -236,23 +228,19 @@ def test_dbtail_units(init, ttail):
         assert 1 == db_get_column_idx(con, 'Log1', 'message')
         assert 0 == ttail.key_idx
 
-        spos, hashes = ttail.get_sent_pos(con)
+        spos = ttail.get_sent_pos(con)
         assert "2016-11-07 09:30:05.100" == spos
-        assert hashes == []
         cursor = ttail.select_lines_to_send(con, spos)
-        sent_hashes = []
-        scnt, last_kv = ttail.send_new_lines(con, cursor, sent_hashes)
-        assert 5 == scnt
-        assert 3 == len(sent_hashes)
+        scnt, last_kv = ttail.send_new_lines(con, cursor)
+        assert 4 == scnt
         assert last_kv == "2016-11-07 09:30:09.100"
-        ttail.save_sent_pos(last_kv, sent_hashes)
-        pos, hashes = ttail.get_sent_pos(con)
+        ttail.save_sent_pos(last_kv)
+        pos = ttail.get_sent_pos(con)
         assert pos == "2016-11-07 09:30:09.100"
-        assert 3 == len(hashes)
 
         # Try to re-send from start (Test remove duplicates)
         cursor = ttail.select_lines_to_send(con, pos)
-        scnt, last_kv = ttail.send_new_lines(con, cursor, sent_hashes)
+        scnt, last_kv = ttail.send_new_lines(con, cursor)
         assert 0 == scnt
         assert last_kv is None
 
@@ -272,12 +260,11 @@ def test_dbtail_units(init, ttail):
         assert netok
 
         echoed = ttail.echo_file.getvalue().splitlines()
-        assert len(echoed) == 15
-        assert echoed[0] == "{'dtime': '2016-11-07 09:30:05.100', "\
-            "'message': u'message 5'}"
-        pos, hashes = ttail.get_sent_pos(con)
+        assert len(echoed) == 14
+        assert echoed[0] == "{'dtime': '2016-11-07 09:30:06.100', "\
+            "'message': u'message 6'}"
+        pos = ttail.get_sent_pos(con)
         pos == "2016-11-07 09:30:19.100"
-        assert len(hashes)
 
 
 def test_dbtail_no_start_lines(init, ttail):
@@ -285,20 +272,7 @@ def test_dbtail_no_start_lines(init, ttail):
         fill_table(con, 1)
         ttail.lines_on_start = 0
         dtime = ttail.get_initial_pos(con)
-        assert "2016-11-07 09:30:09.100\t" == dtime
-
-
-def test_dbtail_rmdup(init, ttail):
-    with DBConnector(tcfg) as con:
-        fill_table(con, 1)
-        t = time.time()
-        scnt, netok = ttail.may_send_newlines(t, con)
-        assert scnt == 5
-
-        # make one duplicate
-        fill_table(con, 1, 5, 9)
-        scnt, netok = ttail.may_send_newlines(t + 1, con)
-        assert scnt == 4
+        assert "2016-11-07 09:30:09.100" == dtime
 
 
 def test_dbtail_sp(init, ttail2):
@@ -319,20 +293,20 @@ def test_dbtail_sp(init, ttail2):
         cmd = "EXEC {} ?".format(cfg2['latest_rows_sp'])
         db_execute(con, cmd, start_dt)
         rows = con.cursor.fetchall()
-        assert 5 == len(rows)
-        assert rows[0][0] == datetime(2016, 11, 7, 9, 30, 5, 100000)
+        assert 4 == len(rows)
+        assert rows[0][0] == datetime(2016, 11, 7, 9, 30, 6, 100000)
         assert rows[-1][0] == datetime(2016, 11, 7, 9, 30, 9, 100000)
 
         t = time.time()
         scnt, netok = ttail2.may_send_newlines(t, con)
-        assert 5 == scnt
+        assert 4 == scnt
         pos = ttail2.get_sent_pos(con)
-        assert '2016-11-07 09:30:09.100' == pos[0]
+        assert '2016-11-07 09:30:09.100' == pos
 
         # test repeating send
         fill_table(con, 2, 20, 10)
         ttail2.max_repeat_send = 1
         scnt, netok = ttail2.may_send_newlines(t + 1, con)
-        assert 18 == scnt
+        assert 20 == scnt
         pos = ttail2.get_sent_pos(con)
-        assert '2016-11-07 09:30:27.100' == pos[0]
+        assert '2016-11-07 09:30:29.100' == pos

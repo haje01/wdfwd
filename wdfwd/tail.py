@@ -38,7 +38,6 @@ FMT_NO_BODY = 0
 FMT_JSON_BODY = 1
 FMT_TEXT_BODY = 2
 BULK_SEND_SIZE = 200
-DB_DUP_QSIZE = 100
 
 FluentCfg = namedtuple('FluentCfg', ['host', 'port'])
 KinesisCfg = namedtuple('KinesisCfg', ['stream_name', 'region', 'access_key',
@@ -246,7 +245,7 @@ class BaseTailer(object):
         Returns:
             (position type): Parsed position type
                 `int` for FileTailer.
-                (`datetime`, `list`) for TableTailer.
+                `datetime` for TableTailer.
         """
         self.linfo("read_sent_pos", "updating for '{}'..".format(target))
         tname = escape_path(target)
@@ -299,7 +298,7 @@ class BaseTailer(object):
             msg: A message to send
             msgs: Message buffer
         """
-        self.ldebug("_send_newline {}".format(msg))
+        # self.ldebug("_send_newline {}".format(msg))
         ts = int(time.time())
         self.may_echo(msg)
 
@@ -416,7 +415,7 @@ class TableTailer(BaseTailer):
                  key_idx,
                  send_term=DB_SEND_TERM, max_send_fail=None, echo=False,
                  encoding=None, lines_on_start=None, max_between_data=None,
-                 millisec_ndigit=None, dup_qsize=None,
+                 millisec_ndigit=None,
                  start_key_sp=None, latest_rows_sp=None):
         """init TableTailer"""
         super(TableTailer, self).__init__(tag, pdir, stream_cfg,
@@ -431,7 +430,6 @@ class TableTailer(BaseTailer):
         self.key_idx = key_idx
         self.key_col = col_names[key_idx]
         self.millisec_ndigit = millisec_ndigit
-        self.dup_qsize = DB_DUP_QSIZE if dup_qsize is None else dup_qsize
         # If SP is used, both start_key_sp & latest_rows_sp exist should exist.
         assert (start_key_sp and latest_rows_sp) or (not start_key_sp and
                                                      not latest_rows_sp)
@@ -490,20 +488,17 @@ class TableTailer(BaseTailer):
 
         Returns:
             (key type): Sent position
-            list: Hashes of sent message
         """
-        pos, hashes = self.read_sent_pos(self.table, con)
-        return pos, hashes
+        pos = self.read_sent_pos(self.table, con)
+        return pos
 
-    def save_sent_pos(self, pos, hashes):
+    def save_sent_pos(self, pos):
         """Save sent info for current target.
 
         Args:
             pos: Position to be saved.
         """
-        jhashes = ','.join([str(i) for i in hashes])
-        mpos = "{}\t{}".format(pos, jhashes)
-        self._save_sent_pos(self.table, mpos)
+        self._save_sent_pos(self.table, pos)
 
     def select_lines_to_send(self, con, pos):
         """Select lines to send from position
@@ -522,7 +517,7 @@ class TableTailer(BaseTailer):
             db_execute(con, cmd, pos)
         else:
             cmd = """
-                SELECT * FROM {0} WHERE {1} >= '{2}'
+                SELECT * FROM {0} WHERE {1} > '{2}'
             """.format(self.table, self.key_col, pos)
             db_execute(con, cmd)
         return con.cursor
@@ -599,11 +594,11 @@ class TableTailer(BaseTailer):
         scnt = 0
         netok = True
         try:
-            ppos, hashq = self.get_sent_pos(con)
+            ppos = self.get_sent_pos(con)
             it_lines = self.select_lines_to_send(con, ppos)
-            scnt, pos = self.send_new_lines(con, it_lines, hashq)
+            scnt, pos = self.send_new_lines(con, it_lines)
             if scnt > 0:
-                self.save_sent_pos(pos, hashq)
+                self.save_sent_pos(pos)
         except pywintypes.error as e:
             self.lerror("send error", str(e))
             netok = False
@@ -633,17 +628,15 @@ class TableTailer(BaseTailer):
         mdict[self.key_col] = kv
         return kv, mdict
 
-    def send_new_lines(self, con, cursor, sent_hashq):
+    def send_new_lines(self, con, cursor):
         """Send new lines to stream
 
         Args:
             con(DBConnector): DB connection
             cursor: Cursor by which new lines have been selected.
-            sent_hashq: Hashes of sent messages.
 
         Note:
-            cursor has selected messages from last sent date time. They'll
-            be checked by sent hashes to prevent duplicate messages.
+            cursor has selected messages from last sent date time.
 
         Returns:
             int: Number of sent lines
@@ -657,18 +650,9 @@ class TableTailer(BaseTailer):
 
             for cols in cursor:
                 kv, msg = self.make_json(cols)
-                msgh = hash(str(msg))
-                if sent_hashq is not None and msgh in sent_hashq:
-                    self.ldebug("dup msg: '{}'".format(msg))
-                    continue
 
                 self._send_newline(msg, msgs)
                 scnt += 1
-                sent_hashq.append(msgh)
-                # trim duplicates hash queue
-                qoff = len(sent_hashq) - self.dup_qsize
-                if qoff > 0:
-                    sent_hashq[:] = sent_hashq[qoff:]
                 last_kv = kv
 
             self._send_remain_msgs(msgs)
@@ -705,8 +689,7 @@ class TableTailer(BaseTailer):
             which that many can be sent, or date of the last log.
 
         Returns:
-            str: Initial position ends with '\t' seperator (which seperates
-                duplicate hashes ).
+            str: Initial position.
         """
         self.ldebug("get_initial_pos: {}".format(self.lines_on_start))
         assert self.lines_on_start >= 0
@@ -725,7 +708,7 @@ class TableTailer(BaseTailer):
         dtime = con.cursor.fetchone()[0]
         dtime = self.conv_datetime(dtime)
         self.ldebug("get_initial_pos: {}".format(dtime))
-        return "{}\t".format(dtime)
+        return "{}".format(dtime)
 
     def parse_sent_pos(self, pos):
         """Parsing sent position (datetime)
@@ -735,18 +718,12 @@ class TableTailer(BaseTailer):
 
         Returns:
             (position type): Last sent position
-            (hashes): Sent message hash list
         """
         try:
-            pos, hashes = pos.split('\t')
-            hashes = hashes.strip()
+            pos = pos.strip()
         except ValueError:
             return None
-        if len(hashes) == 0:
-            hashes = []
-        else:
-            hashes = [int(i) for i in hashes.split(',')]
-        return pos, hashes
+        return pos
 
     def raise_if_notarget(self):
         if self.table is None:

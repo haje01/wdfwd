@@ -22,7 +22,7 @@ if 'tasks' in cfg:
 
 def test_dump_config():
     svc = acfg['service']
-    assert svc['name'] == 'WDFwdTest'
+    assert svc['name'] == 'wdfwd_test'
 
 
 def test_dump_by_names():
