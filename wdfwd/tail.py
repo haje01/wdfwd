@@ -296,7 +296,7 @@ class BaseTailer(object):
 
         Args:
             msg: A message to send
-            msgs: Message buffer
+            msgs: Bulk message buffer
         """
         # self.ldebug("_send_newline {}".format(msg))
         ts = int(time.time())
@@ -439,7 +439,8 @@ class TableTailer(BaseTailer):
         self.linfo("  start_key_sp: {}, latest_rows_sp: {}".
                    format(start_key_sp, latest_rows_sp))
         self.repeat_send = True
-        self.max_repeat_send = 0
+        self.max_consec_send = 0
+        self._clear_queue_lines()
 
     def _store_key_idx_once(self, con):
         """Store key column index once.
@@ -564,11 +565,11 @@ class TableTailer(BaseTailer):
                         break
                     cnt += 1
                     self.ldebug("{} - sent {}".format(cnt, scnt))
-                    if cnt > self.max_repeat_send:
-                        self.ldebug("  over max_repeat_send. stop")
+                    if cnt > self.max_consec_send:
+                        self.ldebug("  over max_consec_send. stop")
                         break
                     else:
-                        self.ldebug("  resend")
+                        self.ldebug("  consecutive send")
                 return tscnt, netok
 
             if econ is None:
@@ -628,6 +629,41 @@ class TableTailer(BaseTailer):
         mdict[self.key_col] = kv
         return kv, mdict
 
+    def queue_send_newline(self, dt, msg, msgs):
+        """Queue sending new line.
+
+        Note:
+            Send queued lines only if new timestamp has changed from
+            previous one. Otherwise, queue new line & timestamp.
+
+        Args:
+            dt(datetime): Timestamp of new line.
+            msg: Message data(JSON)
+            msgs: msgs: Bulk message buffer
+
+        Returns:
+            None if didn't send anything.
+            tuple:
+                int: Sent count.
+                str: Sent datetime.
+        """
+        sent_info = None
+
+        if self.queue_lines_dt is None:
+            self.queue_lines_dt = dt
+            self.queue_lines.append(msg)
+        elif self.queue_lines_dt == dt:
+            self.queue_lines.append(msg)
+        elif self.queue_lines_dt != dt:
+            scnt = len(self.queue_lines)
+            for ql in self.queue_lines:
+                self._send_newline(ql, msgs)
+            sent_info = scnt, self.queue_lines_dt
+            self.queue_lines = [msg]
+            self.queue_lines_dt = dt
+
+        return sent_info
+
     def send_new_lines(self, con, cursor):
         """Send new lines to stream
 
@@ -637,6 +673,9 @@ class TableTailer(BaseTailer):
 
         Note:
             cursor has selected messages from last sent date time.
+            Message is a json data of each columns.
+            Queue message for delayed send to prevent possble loss of last
+            lines. New line fires actual sending of previous(queued) message.
 
         Returns:
             int: Number of sent lines
@@ -650,11 +689,12 @@ class TableTailer(BaseTailer):
 
             for cols in cursor:
                 kv, msg = self.make_json(cols)
+                sent_info = self.queue_send_newline(kv, msg, msgs)
+                if sent_info is not None:
+                    scnt += sent_info[0]
+                    last_kv = sent_info[1]
 
-                self._send_newline(msg, msgs)
-                scnt += 1
-                last_kv = kv
-
+            self._clear_queue_lines()
             self._send_remain_msgs(msgs)
 
         except Exception as e:
@@ -664,6 +704,11 @@ class TableTailer(BaseTailer):
         self.ldebug(1, "sent {} lines, last key value '{}'".format(scnt,
                     last_kv))
         return scnt, last_kv
+
+    def _clear_queue_lines(self):
+        self.ldebug("_clear_queue_lines")
+        self.queue_lines = []
+        self.queue_lines_dt = None
 
     def conv_datetime(self, dtime):
         """Convert a datetime to adapted format string.
@@ -706,6 +751,10 @@ class TableTailer(BaseTailer):
             db_execute(con, cmd)
         self.ldebug(cmd)
         dtime = con.cursor.fetchone()[0]
+        if dtime is None:
+            # no data is available
+            self.lwarning("Start key is None, No data is available?")
+
         dtime = self.conv_datetime(dtime)
         self.ldebug("get_initial_pos: {}".format(dtime))
         return "{}".format(dtime)

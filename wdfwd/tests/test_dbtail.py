@@ -232,13 +232,13 @@ def test_dbtail_units(init, ttail):
         assert "2016-11-07 09:30:05.100" == spos
         cursor = ttail.select_lines_to_send(con, spos)
         scnt, last_kv = ttail.send_new_lines(con, cursor)
-        assert 4 == scnt
-        assert last_kv == "2016-11-07 09:30:09.100"
+        assert 3 == scnt
+        assert last_kv == "2016-11-07 09:30:08.100"
         ttail.save_sent_pos(last_kv)
         pos = ttail.get_sent_pos(con)
-        assert pos == "2016-11-07 09:30:09.100"
+        assert pos == "2016-11-07 09:30:08.100"
 
-        # Try to re-send from start (Test remove duplicates)
+        # Try to re-send from last send
         cursor = ttail.select_lines_to_send(con, pos)
         scnt, last_kv = ttail.send_new_lines(con, cursor)
         assert 0 == scnt
@@ -260,11 +260,11 @@ def test_dbtail_units(init, ttail):
         assert netok
 
         echoed = ttail.echo_file.getvalue().splitlines()
-        assert len(echoed) == 14
+        assert len(echoed) == 13
         assert echoed[0] == "{'dtime': '2016-11-07 09:30:06.100', "\
             "'message': u'message 6'}"
         pos = ttail.get_sent_pos(con)
-        pos == "2016-11-07 09:30:19.100"
+        pos == "2016-11-07 09:30:18.100"
 
 
 def test_dbtail_no_start_lines(init, ttail):
@@ -276,6 +276,7 @@ def test_dbtail_no_start_lines(init, ttail):
 
 
 def test_dbtail_sp(init, ttail2):
+    """Test DB tailing with stored procedure"""
     assert ttail2.use_sp
     assert ttail2.start_key_sp is not None
     assert ttail2.latest_rows_sp is not None
@@ -299,14 +300,20 @@ def test_dbtail_sp(init, ttail2):
 
         t = time.time()
         scnt, netok = ttail2.may_send_newlines(t, con)
-        assert 4 == scnt
+        assert 3 == scnt
         pos = ttail2.get_sent_pos(con)
-        assert '2016-11-07 09:30:09.100' == pos
+        assert '2016-11-07 09:30:08.100' == pos
 
-        # test repeating send
+        # test consecutive send
         fill_table(con, 2, 20, 10)
-        ttail2.max_repeat_send = 1
+        ttail2.max_consec_send = 1
         scnt, netok = ttail2.may_send_newlines(t + 1, con)
-        assert 20 == scnt
+        assert 18 == scnt
         pos = ttail2.get_sent_pos(con)
-        assert '2016-11-07 09:30:29.100' == pos
+        assert '2016-11-07 09:30:26.100' == pos
+
+        # check message integrity
+        secs = []
+        for ln in ttail2.echo_file.getvalue().splitlines():
+            secs.append(int(ln.split(',')[0][28:30]))
+        assert secs == range(6, 27)
