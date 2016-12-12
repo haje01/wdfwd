@@ -269,9 +269,10 @@ parser:
         time: '\d{2}:\d{2}:\d{2}.\d{4}'
         dt_: '%{date} %{time}'
         request_data: ['{.*}', 'prefix(lower(ravel(json(_))), "req")']
+        message: ['{.*}', 'ravel(json(_))']
         exception: '.*'
     groups:
-        debug: '%{dt_},%{request_data}'
+        debug: '%{dt_},%{request_data}?,%{message}?'
     formats:
         - '%{debug}'
     """
@@ -286,7 +287,60 @@ parser:
     assert "req-getdata" not in tok.taken
 
     assert psr.objects['%{request_data}'].tfunc_lmap
-    psr.parse_line('2016-07-25 00:00:00.7083,{"PostData" : {"val": 1, "lval": [1,2,3]},"GetData" : {}}')
+    ok = psr.parse_line('2016-07-25 00:00:00.7083,{"PostData" : {"val": 1, "lval": [1,2,3]},"GetData" : {}},')
     assert "req-postdata_val" in psr.parsed
     assert "req-postdata_lval" in psr.parsed
     assert "req-getdata" not in psr.parsed
+    assert psr.parsed['message'] == ''
+
+
+# def test_parser_multiline():
+#     cfg = """
+#     parser:
+#         tokens:
+#             date: '\d{4}-\d{2}-\d{2}'
+#             time: '\d{2}:\d{2}:\d{2}.\d{4}'
+#             dt_: '%{date} %{time}'
+#             path: '\S+'
+#             state: '\d+'
+#             server_ip: '\d+\.\d+\.\d+\.\d+'
+#             client_ip: '\d+\.\d+\.\d+\.\d+'
+#             time_taken: '\d+'
+#             request_data: '{.*?}'
+#             message: '{.*?}'
+#             exception: '.*(?:%{date})'
+
+#         groups:
+#             errfatal: '%{dt_},%{path}\s?,%{state},%{server_ip},%{client_ip},%{time_taken}?,%{request_data}?,%{message}?,%{exception}'
+
+#     formats:
+#         - '%{errfatal}'
+#     """  # NOQA
+
+#     log = """
+# 2016-12-12 14:43:45.1313,/Main/,200,218.234.76.104,10.1.18.22,,{"PostData" : {},"GetData" : {}},{"message":"There was no endpoint listening at http://alpha-webapi.webzen.co.kr/Billing/Payent/Api.svc that could accept the message. This is often caused by an incorrect address or SOAP action. See InnerException, if present, for more details.","obj":[{"Delegate":{},"target0":{"returnObj":null,"providerCode":"PRC001","userNo":37331,"accountNo":807633,"beginDateTime":"2016-11-12T00:00:00+09:00","endDateTime":"2016-12-12T14:43:45.0375722+09:00","pageIndex":1,"rowPerPage":3,"clientIP":"10.1.18.22"},"method0":{"Name":"<GetPaymentList>b__0","AssemblyName":"Billing.Service, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null","ClassName":"Billing.Service.PaymentService+<>c__DisplayClass2_0","Signature":"Void <GetPaymentList>b__0(Billing.Service.MintPaymentService.ApiClient)","Signature2":"System.Void <GetPaymentList>b__0(Billing.Service.MintPaymentService.ApiClient)","MemberType":8,"GenericArguments":null}}]},System.ServiceModel.EndpointNotFoundException: There was no endpoint listening at http://alpha-webapi.webzen.co.kr/Billing/Payent/Api.svc that could accept the message. This is often caused by an incorrect address or SOAP action. See InnerException, if present, for more details. ---> System.Net.WebException: The remote server returned an error: (404) Not Found.
+#    at System.Net.HttpWebRequest.GetResponse()
+#    at System.ServiceModel.Channels.HttpChannelFactory`1.HttpRequestChannel.HttpChannelRequest.WaitForReply(TimeSpan timeout)
+#    --- End of inner exception stack trace ---
+
+# Server stack trace:
+#    at System.ServiceModel.Channels.HttpChannelUtilities.ProcessGetResponseWebException(WebException webException, HttpWebRequest request, HttpAbortReason abortReason)
+#    at System.ServiceModel.Channels.HttpChannelFactory`1.HttpRequestChannel.HttpChannelRequest.WaitForReply(TimeSpan timeout)
+# 2016-12-12 14:44:15.5694,/Main/,200,218.234.76.104,10.1.18.22,,{"PostData" : {},"GetData" : {}},{"message":"There was no endpoint listening at http://alpha-webapi.webzen.co.kr/Billing/Payent/Api.svc that could accept the message. This is often caused by an incorrect address or SOAP action. See InnerException, if present, for more details.","obj":[{"Delegate":{},"target0":{"returnObj":null,"providerCode":"PRC001","userNo":37331,"accountNo":807633,"beginDateTime":"2016-11-12T00:00:00+09:00","endDateTime":"2016-12-12T14:44:15.4756566+09:00","pageIndex":1,"rowPerPage":3,"clientIP":"10.1.18.22"},"method0":{"Name":"<GetPaymentList>b__0","AssemblyName":"Billing.Service, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null","ClassName":"Billing.Service.PaymentService+<>c__DisplayClass2_0","Signature":"Void <GetPaymentList>b__0(Billing.Service.MintPaymentService.ApiClient)","Signature2":"System.Void <GetPaymentList>b__0(Billing.Service.MintPaymentService.ApiClient)","MemberType":8,"GenericArguments":null}}]},System.ServiceModel.EndpointNotFoundException: There was no endpoint listening at http://alpha-webapi.webzen.co.kr/Billing/Payent/Api.svc that could accept the message. This is often caused by an incorrect address or SOAP action. See InnerException, if present, for more details. ---> System.Net.WebException: The remote server returned an error: (404) Not Found.
+#    at System.Net.HttpWebRequest.GetResponse()
+#    at System.ServiceModel.Channels.HttpChannelFactory`1.HttpRequestChannel.HttpChannelRequest.WaitForReply(TimeSpan timeout)
+#    --- End of inner exception stack trace ---
+#    """  # NOQA
+
+#     log = """2016-12-12 14:43:45.1313,/Main/,200,218.234.76.104,10.1.18.22,,{"PostData" : {},"GetData" : {}},{"message":"There was no endpoint listening at http://alpha-webapi.webzen.co.kr/Billing/Payent/Api.svc that could accept the message. This is often caused by an incorrect address or SOAP action. See InnerException, if present, for more details.","obj":[{"Delegate":{},"target0":{"returnObj":null,"providerCode":"PRC001","userNo":37331,"accountNo":807633,"beginDateTime":"2016-11-12T00:00:00+09:00","endDateTime":"2016-12-12T14:43:45.0375722+09:00","pageIndex":1,"rowPerPage":3,"clientIP":"10.1.18.22"},"method0":{"Name":"<GetPaymentList>b__0","AssemblyName":"Billing.Service, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null","ClassName":"Billing.Service.PaymentService+<>c__DisplayClass2_0","Signature":"Void <GetPaymentList>b__0(Billing.Service.MintPaymentService.ApiClient)","Signature2":"System.Void <GetPaymentList>b__0(Billing.Service.MintPaymentService.ApiClient)","MemberType":8,"GenericArguments":null}}]}   at System.Net.HttpWebRequest.GetResponse()
+#    at System.ServiceModel.Channels.HttpChannelFactory`1.HttpRequestChannel.HttpChannelRequest.WaitForReply(TimeSpan timeout)
+#    --- End of inner exception stack trace ---
+# """
+#     cfg = yaml.load(StringIO(cfg))
+#     psr = ps.create_parser(cfg['parser'])
+#     tok = psr.objects['%{errfatal}']
+#     ok = tok.parse(log)
+#     assert ok
+#     pass
+
+

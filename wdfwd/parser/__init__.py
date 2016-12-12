@@ -134,13 +134,14 @@ class Token(RegexObj):
 
 
 def apply_tfunc(taken, token, tname):
-    """
-        apply token transform, save into target
-    """
+    """apply token transform, save into target"""
     ldebug("apply_tfunc")
     tvar = taken[tname]
-    token.tfunc_lmap['_'] = tvar
-    ret = eval(token.tfunc_s, token.tfunc_gmap, token.tfunc_lmap)
+    if tvar is None:
+        ret = ''
+    else:
+        token.tfunc_lmap['_'] = tvar
+        ret = eval(token.tfunc_s, token.tfunc_gmap, token.tfunc_lmap)
 
     if type(ret) is dict:
         del taken[tname]
