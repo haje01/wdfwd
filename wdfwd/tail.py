@@ -992,7 +992,8 @@ class FileTailer(BaseTailer):
         Oldest file appears first, and newest file supposed to be at the
         end.
         """
-        reverse = self.reverse_order
+        reverse = self.reverse_order if self.reverse_order is not None else\
+            False
         self.linfo("get_sorted_target_files - reverse {}".format(reverse))
 
         # remove elatest if it is in this candidates
@@ -1014,8 +1015,8 @@ class FileTailer(BaseTailer):
                 gd = match.groupdict()
                 order_key[afile] = gd['date'] +\
                     ".{:06d}".format(int(gd['order']))
-                self.ldebug("order_key - {}".format(order_key[afile]))
-            return sorted(files, key=lambda f: order_key[f], reverse=reverse)
+            rv = sorted(files, key=lambda f: order_key[f], reverse=reverse)
+            return rv
         else:
             if len(files) > 0 and reverse:
                 files = sorted(files, reverse=reverse)
