@@ -92,7 +92,7 @@ select object_id('dbo.Log{0}', 'U')
     assert rv[0][0] is not None
 
 
-def fill_table(con, table_no, n_fill=NUM_FILL_LINE, start=0):
+def fill_table(con, table_no, n_fill=NUM_FILL_LINE, start=0, insert_cnt=1):
     """Fill table with dummy logs.
 
     Args:
@@ -112,7 +112,10 @@ insert into dbo.Log{0} values('{1}', {2});
         dtime = START_DATE + timedelta(seconds=start + i, microseconds=100000)
         dtime = str(dtime)[:-3]
         cmd = _cmd.format(table_no, dtime, "'message {0}'".format(start + i))
-        db_execute(con, cmd)
+        icnt = insert_cnt
+        while icnt > 0:
+            db_execute(con, cmd)
+            icnt -= 1
     con.cursor.commit()
     return start + n_fill
 
@@ -283,37 +286,37 @@ def test_dbtail_sp(init, ttail2):
 
     cfg2 = cfg['tailing']['from'][1]['table']
     with DBConnector(tcfg) as con:
-        fill_table(con, 2)
+        fill_table(con, 2, 10, 0, 2)
         cmd = 'EXEC {} ?'.format(cfg2['start_key_sp'])
         db_execute(con, cmd, 5)
         rv = con.cursor.fetchone()
         start_dt = rv[0]
-        assert start_dt == datetime(2016, 11, 7, 9, 30, 5, 100000)
+        assert start_dt == datetime(2016, 11, 7, 9, 30, 7, 100000)
 
         start_dt = ttail2.conv_datetime(start_dt)
         cmd = "EXEC {} ?".format(cfg2['latest_rows_sp'])
         db_execute(con, cmd, start_dt)
         rows = con.cursor.fetchall()
         assert 4 == len(rows)
-        assert rows[0][0] == datetime(2016, 11, 7, 9, 30, 6, 100000)
+        assert rows[0][0] == datetime(2016, 11, 7, 9, 30, 8, 100000)
         assert rows[-1][0] == datetime(2016, 11, 7, 9, 30, 9, 100000)
 
         t = time.time()
         scnt, netok = ttail2.may_send_newlines(t, con)
-        assert 3 == scnt
+        assert 2 == scnt
         pos = ttail2.get_sent_pos(con)
         assert '2016-11-07 09:30:08.100' == pos
 
-        # test consecutive send
-        fill_table(con, 2, 20, 10)
-        ttail2.max_consec_send = 1
+        # test additional send
+        fill_table(con, 2, 10, 10, 2)
         scnt, netok = ttail2.may_send_newlines(t + 1, con)
-        assert 18 == scnt
+        assert 8 == scnt
         pos = ttail2.get_sent_pos(con)
-        assert '2016-11-07 09:30:26.100' == pos
+        assert '2016-11-07 09:30:12.100' == pos
 
         # check message integrity
         secs = []
         for ln in ttail2.echo_file.getvalue().splitlines():
             secs.append(int(ln.split(',')[0][28:30]))
-        assert secs == range(6, 27)
+        assert secs[0] == 8
+        assert secs[-1] == 12
