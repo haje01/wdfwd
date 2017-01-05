@@ -5,8 +5,7 @@ sys.path.append('.')
 import click
 
 from wdfwd.get_config import _get_config
-from wdfwd.parser import merge_parser_cfg
-
+from wdfwd.util import iter_tail_info, FileTailInfo
 
 CONFIG_NAME = 'WDFWD_CFG'
 
@@ -21,7 +20,8 @@ def cli():
 @click.option('--cfg_path', help="Forwarder config file path.")
 @click.option('--cfile_idx', default=0, help="Tailing config file index.")
 @click.option('--errors-only', is_flag=True, help="Show errors only.")
-@click.option('--cont-error', is_flag=True, help="Continue parsing with error.")
+@click.option('--cont-error', is_flag=True, help="Continue parsing with error."
+              )
 def parser(file_path, cfg_path, cfile_idx, errors_only, cont_error):
     if not cfg_path:
         assert CONFIG_NAME in os.environ
@@ -29,20 +29,14 @@ def parser(file_path, cfg_path, cfile_idx, errors_only, cont_error):
 
     cfg = _get_config(cfg_path)
     assert 'tailing' in cfg
-    ctail = cfg['tailing']
-    assert ctail['from']
-    encoding = ctail['file_encoding'] if 'file_encoding' in ctail else None
+    tailc = cfg['tailing']
+    targets = list(iter_tail_info(tailc))
+    target = targets[cfile_idx]
+    assert isinstance(target, FileTailInfo)
 
-    gpcfg = ctail['parser'] if 'parser' in ctail else None
-    files = ctail['from']
-    afile = files[cfile_idx]
-    pcfg = afile['file']['parser'] if 'parser' in afile['file'] else None
-    if gpcfg:
-        pcfg = merge_parser_cfg(gpcfg, pcfg)
-
-    from wdfwd import parser as ps
-    parser = ps.create_parser(pcfg, encoding)
-
+    targets = list(iter_tail_info(tailc))
+    target = targets[cfile_idx]
+    parser = target.parser
     n_succ = 0
     with open(file_path, 'rt') as f:
         prev_compl = 0
@@ -83,11 +77,12 @@ def format(file_path, cfg_path, cfile_idx, errors_only):
         cfg_path = os.environ[CONFIG_NAME]
 
     cfg = _get_config(cfg_path)
-    assert 'tailing'
-    assert cfg['tailing']['from']
-    files = cfg['tailing']['from']
-    afile = files[cfile_idx]
-    format = afile['file']['format']
+    assert 'tailing' in cfg
+    tailc = cfg['tailing']
+    targets = list(iter_tail_info(tailc))
+    target = targets[cfile_idx]
+    assert isinstance(target, FileTailInfo)
+    format = target.format
     ptrn = re.compile(format)
 
     with open(file_path, 'rt') as f:

@@ -418,14 +418,12 @@ def iter_tail_info(tailc):
         cmd = src.keys()[0]
 
         if cmd == 'table':
-            fromc = src['table']
             send_term = tailc.get('send_term', DB_SEND_TERM)
             fromc = src['table']
             yield make_table_tail_info(tailc, fromc, pos_dir, scfg,
                                        lines_on_start, max_between_data,
                                        send_term)
         elif cmd == 'file':
-            fromc = src['file']
             update_term = tailc.get('update_term', FILE_UPDATE_TERM)
             send_term = tailc.get('send_term', FILE_SEND_TERM)
             fromc = src['file']
@@ -467,22 +465,77 @@ def make_table_tail_info(tailc, tablec, pos_dir, scfg, lines_on_start,
     return tinfo
 
 
-def make_file_tail_info(tailc, filec, pos_dir, scfg, lines_on_start,
-                        max_between_data, send_term, update_term):
-    from wdfwd.parser import create_parser, merge_parser_cfg
+def resolve_format(tailc, filec):
+    """Choice between global and local formats.
 
-    max_read_buffer = tailc.get('max_read_buffer')
+    Args:
+        tailc: tailing section in config file.
+        filec: file section under tailing/from section in config file.
 
-    file_enc = tailc.get('file_encoding')
-
+    Returns:
+        format config dict: Resolved format.
+        bool: True if global format is selected.
+    """
     gformat = tailc.get('format')
     linfo("global log format: '{}'".format(gformat))
     if gformat:
         validate_format(ldebug, lerror, gformat)
 
+    global_format = False
+    format = filec.get('format') if filec is not None else None
+    if not format and gformat:
+        linfo("file format not exist. use global format instead")
+        format = gformat
+        global_format = True
+
+    return format, global_format
+
+
+def resolve_parser(tailc, filec):
+    """Choice between global and local parsers.
+
+    Args:
+        tailc: tailing section in config file.
+        filec: file section under tailing/from section in config file.
+
+    Returns:
+        parser instance / parser config dict: global parser instance or parser
+            config dict
+        bool: True if global format is selected.
+    """
+    from wdfwd.parser import create_parser, merge_parser_cfg
+
+    file_enc = tailc.get('file_encoding')
     gpcfg = tailc.get('parser')
     linfo("global log parser '{}'".format(gpcfg))
     gparser = create_parser(gpcfg, file_enc) if gpcfg else None
+    pcfg = filec.get('parser') if filec is not None else None
+    global_parser = False
+    if pcfg is not None:
+        if gpcfg is not None:
+            ldebug("merge local & global parser config")
+            pcfg = merge_parser_cfg(gpcfg, pcfg)
+        parser = create_parser(pcfg, file_enc)
+        ldebug("file parser: '{}'".format(parser))
+    else:
+        parser = None
+
+    if not parser and gparser:
+        linfo("parser not exist. use global parser instead")
+        parser = gparser
+        global_parser = True
+
+    return parser, global_parser
+
+
+def make_file_tail_info(tailc, filec, pos_dir, scfg, lines_on_start,
+                        max_between_data, send_term, update_term):
+    max_read_buffer = tailc.get('max_read_buffer')
+
+    file_enc = tailc.get('file_encoding')
+
+    format, global_format = resolve_format(tailc, filec)
+    parser, global_parser = resolve_parser(tailc, filec)
 
     gorder_ptrn = tailc.get('order_ptrn')
     ldebug("global order ptrn: '{}'".format(gorder_ptrn))
@@ -497,34 +550,13 @@ def make_file_tail_info(tailc, filec, pos_dir, scfg, lines_on_start,
         ptrn = filec.get('pattern')
         ldebug("file pattern: '{}'".format(ptrn))
         latest = filec.get('latest')
-        format = filec.get('format')
         ldebug("file format: '{}'".format(format))
         order_ptrn = filec.get('order_ptrn')
         reverse_order = filec.get('reverse_order')
-        pcfg = filec.get('parser')
         tag = filec.get('tag')
     else:
-        bdir = ptrn = latest = format = order_ptrn = pcfg = tag =\
+        bdir = ptrn = latest = order_ptrn = tag =\
             send_term = update_term = reverse_order = None
-
-    if pcfg:
-        if gpcfg:
-            pcfg = merge_parser_cfg(gpcfg, pcfg)
-        parser = create_parser(pcfg, file_enc)
-        ldebug("file parser: '{}'".format(parser))
-    else:
-        parser = None
-
-    global_format = global_parser = False
-    if not format and gformat:
-        linfo("file format not exist. use global format instead")
-        format = gformat
-        global_format = True
-
-    if not parser and gparser:
-        linfo("parser not exist. use global parser instead")
-        parser = gparser
-        global_parser = True
 
     if not format and not parser:
         lerror("Need format or parser. return")
