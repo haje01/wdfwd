@@ -1,8 +1,9 @@
 import re
 import inspect
 import json
+import codecs
 
-from wdfwd.util import ldebug, ravel_dict
+from wdfwd.util import ldebug, ravel_dict, decode
 
 
 tk_ptrn = re.compile(r'(%{[^}]+})')
@@ -120,7 +121,7 @@ class Token(RegexObj):
 
     def parse(self, msg, decoded=False):
         if not decoded and self.encoding:
-            msg = msg.decode(self.encoding)
+            msg = decode(msg, self.encoding)
 
         match = self.ptrn.match(msg)
         if match:
@@ -159,7 +160,7 @@ class Group(RegexObj):
 
     def parse(self, msg, decoded=False):
         if not decoded and self.encoding:
-            msg = msg.decode(self.encoding)
+            msg = decode(msg, self.encoding)
 
         match = self.ptrn.match(msg)
         if match:
@@ -180,7 +181,7 @@ class KeyValue(object):
 
     def parse(self, msg, prefix=None, decoded=False):
         if not decoded and self.encoding:
-            msg = msg.decode(self.encoding)
+            msg = decode(msg, self.encoding)
 
         rd = self.ptrn.findall(msg)
         if rd:
@@ -206,7 +207,7 @@ class Format(object):
 
     def parse(self, msg, decoded=False):
         if not decoded and self.encoding:
-            msg = msg.decode(self.encoding)
+            msg = decode(msg, self.encoding)
 
         match = self.ptrn.match(msg)
         if match:
@@ -265,7 +266,7 @@ class Parser(object):
     def parse_line(self, line):
         ldebug("parse_line")
         if self.encoding:
-            line = line.decode(self.encoding)
+            line = decode(line, self.encoding)
 
         for fmt in self.formats:
             if fmt.parse(line, True):

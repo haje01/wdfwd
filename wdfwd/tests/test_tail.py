@@ -845,3 +845,15 @@ def test_tail_uncompleted(rmlogs, ftail_fmt):
     assert ftail_fmt.get_file_pos() == 42
     assert ftail_fmt.may_send_newlines() == 1
     assert ftail_fmt.get_sent_pos() == 42
+
+
+def test_tail_mulog(rmlogs):  # FIXME : delete this test
+    finfo = tcfg['from'][-1]['file']
+    bdir = finfo['dir']
+    tail = FileTailer(bdir, finfo['pattern'], finfo['tag'], pos_dir,
+                      fcfg, echo=True, format=finfo['format'], encoding='MS949'
+                      , max_between_data=400000000)
+    tail.update_target(True)
+    while True:
+        tail.may_send_newlines()
+

@@ -5,6 +5,7 @@ import time
 import re
 from collections import namedtuple
 from subprocess import check_call as _check_call, CalledProcessError
+import codecs
 
 import win32file
 import boto3
@@ -13,6 +14,10 @@ from botocore.exceptions import ClientError
 
 fsender = None
 KN_TEST_STREAM = 'wdfwd-test'
+
+
+def decode(msg, encoding):
+    return codecs.decode(msg, encoding, 'replace')
 
 
 def cap_call(cmd, retry=0, _raise=True, _test=False):

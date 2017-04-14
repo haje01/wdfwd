@@ -55,7 +55,7 @@ class FCS(CustomParser):
         self.Token("value", r'\s*%([\w\.\-]*)\s*')
         self.Token("transaction_id", r'\[%(\d+)\]')
         self.Token("totalms", r'<total: %(\d+) msec>')
-        self.keyvalue = self.KeyValue(r'^ %{key} : %{value}\n?')
+        self.keyvalue = self.KeyValue(r'^ %{key}:%{value}\n?')
         self.head = self.Group("head", r'%{linfo} %{time}\s+%{trdid} '
                                '%{srcinfo}\] %{msg}')
         self.thead = self.Group("thead", r'%{linfo} %{time}\s+%{trdid} '

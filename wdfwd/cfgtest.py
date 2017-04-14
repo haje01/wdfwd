@@ -17,8 +17,8 @@ def cli():
 
 @cli.command()
 @click.argument('file_path')
-@click.option('--cfg_path', help="Forwarder config file path.")
-@click.option('--cfile_idx', default=0, help="Tailing config file index.")
+@click.option('--cfg-path', help="Forwarder config file path.")
+@click.option('--cfile-idx', default=0, help="Tailing config file index.")
 @click.option('--errors-only', is_flag=True, help="Show errors only.")
 @click.option('--cont-error', is_flag=True, help="Continue parsing with error."
               )
@@ -66,8 +66,8 @@ def parser(file_path, cfg_path, cfile_idx, errors_only, cont_error):
 
 @cli.command()
 @click.argument('file_path')
-@click.option('--cfg_path', help="Forwarder config file path.")
-@click.option('--cfile_idx', default=0, help="Tailing config file index.")
+@click.option('--cfg-path', help="Forwarder config file path.")
+@click.option('--cfile-idx', default=0, help="Tailing config file index.")
 @click.option('--errors-only', is_flag=True, help="Show errors only.")
 def format(file_path, cfg_path, cfile_idx, errors_only):
     import re

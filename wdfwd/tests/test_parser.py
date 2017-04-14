@@ -149,6 +149,7 @@ def test_parser_fcs():
     assert fcs.parse_line("E20160324 09:26:51.754881  2708 fcs_client.cpp:225] connection closed : 997")
     assert fcs.buf['dt_'] == '2016-03-24 09:26:51.754881'
     assert fcs.buf['level'] == 'E'
+    assert fcs.buf['msg'] == 'connection closed : 997'
     assert len(fcs.buf) == 9
     assert fcs.completed == 0
 
@@ -210,6 +211,37 @@ def test_parser_fcs():
     assert fcs.buf['transaction_id'] == '3362162'
     assert fcs.buf['dt_'] == '2016-04-20 11:48:24.739433'
     assert fcs.buf['totalms'] == '0'
+
+    fcs.parse_line("I20170104 14:31:26.525174 10828 communicator.hpp:165] [4] request async")
+    assert '[4] request async' in fcs.buf['msg']
+    fcs.parse_line(" [RequestChargeJewel]")
+    fcs.parse_line(" packet_length : 171")
+    assert 'req-packet_length' in fcs.buf
+    fcs.parse_line(" packet_type : 0xb0")
+    fcs.parse_line(" transaction_id : 4")
+    fcs.parse_line(" callback_attribute :callback attr")
+    fcs.parse_line(" provider_code :PRC001")
+    fcs.parse_line(" user_no :10000149")
+    assert 'req-user_no' in fcs.buf
+
+    fcs.parse_line("I20170327 22:31:42.046875  1440 fcs_client.h:114] [963080] response async")
+    assert '[963080] response async' in fcs.buf['msg']
+    fcs.parse_line(" [ResponseWShopCheckBalance]")
+    fcs.parse_line(" packet_length : 75")
+    assert 'res-packet_length' in fcs.buf
+    fcs.parse_line(" jewel_balance_item_count : 1")
+    #  can not parse indented key values
+    fcs.parse_line("    JewelBalanceItem[0]")
+    fcs.parse_line("      cash_type : 3")
+    fcs.parse_line("      value	 : 500")
+
+    fcs.parse_line("I20170327 22:31:43.281250  1440 fcs_client.h:114] [963104] response async")
+    assert '[963104] response async' in fcs.buf['msg']
+    fcs.parse_line(" [ResponseWShopCheckBalance]")
+    fcs.parse_line(" packet_length : 75")
+    fcs.parse_line(" callback_attribute : J6402170601804509986")
+    fcs.parse_line(" jewel_balance_item_count : 1")
+    assert "res-jewel_balance_item_count" in fcs.buf
 
 
 def test_parser_mocaa():

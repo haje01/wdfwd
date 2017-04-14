@@ -24,7 +24,7 @@ import pyodbc  # NOQA
 
 from wdfwd.util import OpenNoLock, get_fileid, escape_path, validate_format as\
     _validate_format, validate_order_ptrn as _validate_order_ptrn,\
-    query_aws_client
+    query_aws_client, decode
 
 pyodbc.pooling = False
 
@@ -1116,7 +1116,11 @@ class FileTailer(BaseTailer):
     def convert_msg(self, msg):
         self.ldebug("convert_msg")
         if self.encoding:
-            msg = msg.decode(self.encoding).encode('utf8')
+            try:
+                msg = decode(msg, self.encoding).encode('utf8')
+            except Exception:
+                self.lwarning(1, "fail to decode '{}'".format(msg))
+                return None
 
         parsed = None
         self.ldebug(1, "try match format")

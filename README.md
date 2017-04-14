@@ -385,26 +385,26 @@ json 파싱된 결과는 다른 토큰의 결과와 합쳐지는데, 이때 같�
     Usage: test format [OPTIONS] FILE_PATH
 
     Options:
-    --cfg_path TEXT      Forwarder config file path.
-    --cfile_idx INTEGER  Tailing config file index.
+    --cfg-path TEXT      Forwarder config file path.
+    --cfile-idx INTEGER  Tailing config file index.
     --help               Show this message and exit.
 
     > test parser --help
     Usage: test parser [OPTIONS] FILE_PATH
 
     Options:
-    --cfg_path TEXT      Forwarder config file path.
-    --cfile_idx INTEGER  Tailing config file index.
+    --cfg-path TEXT      Forwarder config file path.
+    --cfile-idx INTEGER  Tailing config file index.
     --help               Show this message and exit.
 
 
-공통적으로 `--cfg_path`로 설정파일 경로를 지정하고, `--cfile_idx`로 `tailing` 아래 `file`의 인덱스를 지정한다.
+공통적으로 `--cfg-path`로 설정파일 경로를 지정하고, `--cfile-idx`로 `tailing` 아래 `file`의 인덱스를 지정한다.
 
 예를 들어 format 정규식을 테스트 하려면 다음과 같이 한다.
 
-    > test format --cfg_path "C:\wdfwd\config.yml" --cfile_idx 0 "C:\logs\test.log"
+    > test format --cfg-path "C:\wdfwd\config.yml" --cfile-idx 0 "C:\logs\test.log"
 
-이때 미리 환경변수 `WDFWD_CFG` 가 설정되어 있다면 `--cfg_path` 는 생략 가능하다.
+이때 미리 환경변수 `WDFWD_CFG` 가 설정되어 있다면 `--cfg-path` 는 생략 가능하다.
 
 정상적으로 파싱이 되면 파싱된 결과를 출력하고, 실패하면 다음과 같이 에러 메시지와 함께 실패한 행을 출력한다.
 
