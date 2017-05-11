@@ -38,6 +38,7 @@ FMT_NO_BODY = 0
 FMT_JSON_BODY = 1
 FMT_TEXT_BODY = 2
 BULK_SEND_SIZE = 200
+GET_HINFO_TERM = 5
 
 FluentCfg = namedtuple('FluentCfg', ['host', 'port'])
 KinesisCfg = namedtuple('KinesisCfg', ['stream_name', 'region', 'access_key',
@@ -185,9 +186,11 @@ class BaseTailer(object):
         self.fsender = self.kclient = None
         self.ksent_seqn = self.ksent_shid = None
         self.linfo("__init__", "max_send_fail: '{}'".format(max_send_fail))
-        self.sname = socket.gethostname()
-        self.saddr = socket.gethostbyname(self.sname)
-        tag = "{}.{}".format(self.sname.lower(), tag)
+
+        self.last_get_hinfo = 0
+        self.sname, self.saddr = self.get_host_info()
+        tag = "{}.{}".format(self.sname.lower() if self.sname is not None else
+                             None, tag)
         self.linfo(1, "tag: '{}'".format(tag))
         self.tag = tag
         self.send_term = send_term
@@ -217,6 +220,27 @@ class BaseTailer(object):
         self.lines_on_start = lines_on_start if lines_on_start else 0
         self.max_between_data = max_between_data if max_between_data else\
             MAX_BETWEEN_DATA
+
+    def get_host_info(self):
+        sname = saddr = None
+        try:
+            sname = socket.gethostname()
+            self.linfo("  host name: {}".format(sname))
+            saddr = socket.gethostbyname(sname)
+            self.linfo("  host addr: {}".format(saddr))
+        except Exception as e:
+            self.lerror("Fail to get host info: {}".format(e))
+        return sname, saddr
+
+    def query_host_info(self):
+        invalid = (self.sname is None) or (self.saddr is None)
+        if invalid:
+            if time.time() - self.last_get_hinfo > GET_HINFO_TERM:
+                self.sname, self.saddr = self.get_host_info()
+                self.last_get_hinfo = time.time()
+                self.linfo("  self.sname {}, self.saddr {}".format(self.sname, self.saddr))
+
+        return self.sname, self.saddr
 
     def ldebug(self, tabfunc, msg=""):
         _log(self, 'debug', tabfunc, msg)
@@ -1194,8 +1218,9 @@ class FileTailer(BaseTailer):
 
     def attach_msg_extra(self, msg):
         if isinstance(msg, dict):
-            msg['sname_'] = self.sname
-            msg['saddr_'] = self.saddr
+            sname, saddr = self.query_host_info()
+            msg['sname_'] = sname
+            msg['saddr_'] = saddr
             return msg
         else:
             return msg

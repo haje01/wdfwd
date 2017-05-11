@@ -761,6 +761,7 @@ def test_tail_file_format(rmlogs):
     fmt = r'(?P<dt_>\d+-\d+-\d+ \d+:\d+:\S+)\s(?P<lvl>\S+):\s(?P<_json_>.+)'
     tail = FileTailer(bdir, "tailtest4_*-*-*.log", "wdfwd.tail4", pos_dir,
                       fcfg, echo=True, format=fmt)
+    tail.saddr = tail.sname = None
     data="""2016-03-30 16:10:50.5503 INFO: {"dt_": "to-be-overwritten", "obj":[{"Delegate":{},"target0":{"returnObj":{"FirstItems":[{"ProductDisplaySeq":388}],"ProductDisplaySeq":389,"SecondItems":[{"ParentSeq":388,"ProductDisplaySeq":389},{"ParentSeq":388,"ProductDisplaySeq":461}],"ThirdItems":[],"Message":null,"Return":true,"ReturnCode":0,"TraceId":"6c8b7c6c-6c6a-4fcc-b879-72a64a4e57e5"},"parentSeq":0,"salesZone":421,"userSeq":0,"accountID":"","clientIp":"10.1.18.22"}}]}"""
     path = os.path.join(bdir, 'tailtest4_2016-03-30.log')
     with open(path, 'w') as f:
@@ -768,6 +769,8 @@ def test_tail_file_format(rmlogs):
 
     tail.update_target(True)
     assert tail.may_send_newlines() == 1
+    assert tail.sname is not None
+    assert tail.saddr is not None
     echo = tail.echo_file.getvalue()
     assert 'dt_' in echo
     assert 'sname_' in echo
@@ -847,13 +850,12 @@ def test_tail_uncompleted(rmlogs, ftail_fmt):
     assert ftail_fmt.get_sent_pos() == 42
 
 
-def test_tail_mulog(rmlogs):  # FIXME : delete this test
-    finfo = tcfg['from'][-1]['file']
-    bdir = finfo['dir']
-    tail = FileTailer(bdir, finfo['pattern'], finfo['tag'], pos_dir,
-                      fcfg, echo=True, format=finfo['format'], encoding='MS949'
-                      , max_between_data=400000000)
-    tail.update_target(True)
-    while True:
-        tail.may_send_newlines()
-
+#def test_tail_mulog(rmlogs):  # FIXME : delete this test
+    #finfo = tcfg['from'][-1]['file']
+    #bdir = finfo['dir']
+    #tail = FileTailer(bdir, finfo['pattern'], finfo['tag'], pos_dir,
+                      #fcfg, echo=True, format=finfo['format'], encoding='MS949'
+                      #, max_between_data=400000000)
+    #tail.update_target(True)
+    #while True:
+        #tail.may_send_newlines()

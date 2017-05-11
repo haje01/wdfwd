@@ -29,7 +29,7 @@ fsender = None
 
 
 def start_tailing():
-    ldebug("start_tailing")
+    linfo("start_tailing")
     supress_boto3_log()
 
     if not tailc:
@@ -38,7 +38,7 @@ def start_tailing():
 
     for i, ti in enumerate(iter_tail_info(tailc)):
         if isinstance(ti, TableTailInfo):
-            ldebug("start table tail - {}".format(ti))
+            linfo("start table tail - {}".format(ti))
 
             tailer = TableTailer(
                 tailc,
@@ -58,7 +58,7 @@ def start_tailing():
                 latest_rows_sp=ti.latest_rows_sp
             )
         elif isinstance(ti, FileTailInfo):
-            ldebug("start file tail - {}".format(ti))
+            linfo("start file tail - {}".format(ti))
 
             tailer = FileTailer(
                 ti.bdir,
@@ -78,7 +78,7 @@ def start_tailing():
                 reverse_order=ti.reverse_order)
 
         name = ti.tag
-        ldebug("create & start {} thread".format(name))
+        linfo("create & start {} thread".format(name))
         trd = TailThread(name, tailer)
         tail_threads.append(trd)
         trd.start()
