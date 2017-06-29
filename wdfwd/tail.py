@@ -1147,8 +1147,10 @@ class FileTailer(BaseTailer):
                 return None
 
         parsed = None
-        self.ldebug(1, "try match format")
+        self.ldebug(1, "try match format {}".format(msg))
+        self.ldebug(1, "search start")
         match = self.format.search(msg)
+        self.ldebug(1, "search end")
         if match:
             parsed = self._convert_matched_msg(match)
             self.ldebug(1, "parsed: {}".format(parsed))

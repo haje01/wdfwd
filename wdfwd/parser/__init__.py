@@ -1,7 +1,6 @@
 import re
 import inspect
 import json
-import codecs
 
 from wdfwd.util import ldebug, ravel_dict, decode
 
@@ -290,7 +289,7 @@ def create_parser(cfg, encoding=None):
         ldebug("custom parser created '{}'".format(cuspar))
         return cuspar
 
-    ps = Parser()
+    ps = Parser(encoding)
     tokens = cfg.get('tokens')
     unresolved = True
     while unresolved and tokens:
