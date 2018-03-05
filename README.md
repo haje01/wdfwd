@@ -1,8 +1,10 @@
-    __    _______ _____ __    _______
+__    _______ _____ __    _______
     \\ /\ //||  ) ||==  \\ /\ //||  )
      \V/\V/ ||_// ||     \V/\V/ ||_//
 
 # wdfwd
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fhaje01%2Fwdfwd.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fhaje01%2Fwdfwd?ref=badge_shield)
+
 
 
 유닉스 계열의 OS에는 각종 로그와 데이터를 포워딩하기 위한 좋은 솔루션들이 많이 있다. 그러나 윈도우를 위한 포워더는 부족하다. wdfwd(Windows Data Forwarder)는 윈도우 서비스로 설치되어 파일 로그나 DB에 저장된 로그를 포워딩해준다.
@@ -503,3 +505,7 @@ L7 스위치의 ACK Flooding 정책에 따라 막히는 때가 있다. 시스템
 
 ### 서버 재시작시 로그 포워딩이 안되는 문제
 서버 종료시 정상적으로 로그 파일을 flush하고 close 해주었는지 확인한다. 서버 프로세스를 킬하는 방식으로 종료하면, 서버 종료 후에도 해당 로그 파일 억세스에 실패하는 경우가 있다. 
+
+
+## License
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fhaje01%2Fwdfwd.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fhaje01%2Fwdfwd?ref=badge_large)
