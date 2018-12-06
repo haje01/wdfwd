@@ -27,9 +27,9 @@ data_files = [
 class Target:
     def __init__(self, **kw):
         self.__dict__.update(kw)
-        self.version = "0.1.3"
+        self.version = "0.1.4"
         self.company_name = "Webzen"
-        self.copyright = "Copyright (C) 2016 Webzen"
+        self.copyright = "Copyright (C) 2018 Webzen"
         self.name = "Windows Data Forwarder"
 
 
