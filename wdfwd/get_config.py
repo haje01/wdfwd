@@ -3,7 +3,7 @@ import logging
 
 import yaml
 
-DIR_CFG_FILE = 'config.yml'
+LOCAL_CFG_NAME = 'config.yml'
 DIST_FILE = 'library.zip'
 
 
@@ -23,12 +23,12 @@ def _expand_var(val):
     return val
 
 
-def _dcfg_path():
+def _local_cfg_path():
     abd = os.path.dirname(os.path.realpath(__file__))
     dist_file_at = abd.find(DIST_FILE)
     if dist_file_at >= 0:
         abd = abd[:dist_file_at]
-    path = os.path.join(abd, DIR_CFG_FILE)
+    path = os.path.join(abd, LOCAL_CFG_NAME)
     return path
 
 
@@ -36,15 +36,15 @@ def get_config(envvar='WDFWD_CFG'):
     if envvar in os.environ:
         logging.info('Environment variable cfg: %s', os.environ[envvar])
 
-    dcfg_path = _dcfg_path()
-    dcfg_exists = os.path.isfile(dcfg_path)
-    logging.info('Directory local cfg: %s', dcfg_path)
-    if dcfg_exists:
-        logging.info('Directory local cfg: %s', dcfg_path)
+    lcfg_path = _local_cfg_path()
+    lcfg_exists = os.path.isfile(lcfg_path)
+    logging.info('Directory local cfg: %s', lcfg_path)
+    if lcfg_exists:
+        logging.info('Directory local cfg: %s', lcfg_path)
 
-    assert (envvar in os.environ) or dcfg_exists
+    assert (envvar in os.environ) or lcfg_exists
 
-    path = dcfg_path if dcfg_exists else os.environ[envvar]
+    path = lcfg_path if lcfg_exists else os.environ[envvar]
     logging.info("Using cfg file: %s", path)
     return _get_config(path)
 
