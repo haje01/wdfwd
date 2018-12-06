@@ -24,7 +24,7 @@ import pyodbc  # NOQA
 
 from wdfwd.util import OpenNoLock, get_fileid, escape_path, validate_format as\
     _validate_format, validate_order_ptrn as _validate_order_ptrn,\
-    query_aws_client, decode
+    query_aws_client, decode, is_file
 
 pyodbc.pooling = False
 
@@ -238,7 +238,8 @@ class BaseTailer(object):
             if time.time() - self.last_get_hinfo > GET_HINFO_TERM:
                 self.sname, self.saddr = self.get_host_info()
                 self.last_get_hinfo = time.time()
-                self.linfo("  self.sname {}, self.saddr {}".format(self.sname, self.saddr))
+                self.linfo("  self.sname {}, self.saddr {}".format(self.sname,
+                                                                   self.saddr))
 
         return self.sname, self.saddr
 
@@ -1177,12 +1178,15 @@ class FileTailer(BaseTailer):
         if self.elatest:
             epath = os.path.join(self.bdir, self.elatest)
             efid = None
-            if os.path.isfile(epath):
+            if is_file(epath):
                 with OpenNoLock(epath) as fh:
                     efid = get_fileid(fh)
                     return epath, efid
             else:
                 self.lwarning(1, "can not find elatest '{}'".format(epath))
+                # bdir = os.path.dirname(epath)
+                # files = os.listdir(bdir)
+                # self.ldebug("dir {} files: {}".format(bdir, files))
         return None, None
 
     def may_send_newlines(self):

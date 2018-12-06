@@ -1,5 +1,6 @@
 from StringIO import StringIO
 
+import os
 import yaml
 
 
@@ -22,7 +23,7 @@ def test_util_tail_info():
     from wdfwd.tail import FluentCfg
 
     # no global & local parser
-    cfg="""
+    cfg = """
 tailing:
     pos_dir: D:\\UTIL\\temp
     from:
@@ -39,7 +40,7 @@ tailing:
     assert '%{test}' in tinfos[0].parser.objects.keys()
 
     # global parser & no local
-    cfg="""
+    cfg = """
 tailing:
     pos_dir: D:\\UTIL\\temp
     parser:
@@ -56,7 +57,7 @@ tailing:
     assert '%{test}' in tinfos[0].parser.objects.keys()
 
     # global format & no local
-    cfg="""
+    cfg = """
 tailing:
     pos_dir: D:\\UTIL\\temp
     format: '(?P<dt_>\d{8})'
@@ -72,7 +73,7 @@ tailing:
     assert tinfos[0].format == '(?P<dt_>\d{8})'
 
     # global parser & local parser
-    cfg="""
+    cfg = """
 tailing:
     pos_dir: D:\\UTIL\\temp
     parser:
@@ -96,7 +97,7 @@ tailing:
     assert '(?P<foo>\d)' == tinfos[0].parser.objects['%{foo}'].regex
 
     # global format & local format
-    cfg="""
+    cfg = """
 tailing:
     pos_dir: D:\\UTIL\\temp
     format: '(?P<dt_>\d{8})'
@@ -112,7 +113,7 @@ tailing:
     assert tinfos[0].format == '(?P<dt_>\d{10})'
 
     # global format & local parser
-    cfg="""
+    cfg = """
 tailing:
     pos_dir: D:\\UTIL\\temp
     format: '(?P<dt_>\d{8})'
@@ -132,7 +133,7 @@ tailing:
     assert '(?P<test>.+)' == tinfos[0].parser.objects['%{test}'].regex
 
     # global parser & local format
-    cfg="""
+    cfg = """
 tailing:
     pos_dir: D:\\UTIL\\temp
     parser:
@@ -150,7 +151,7 @@ tailing:
     assert tinfos[0].parser is None
     assert tinfos[0].format is not None
 
-    cfg="""
+    cfg = """
 tailing:
     max_between_data: 1000000
     file_encoding: cp949
@@ -218,10 +219,9 @@ tailing:
     assert i2.scfg == FluentCfg(host='111.22.33.222', port=24224)
     assert i2.send_term == 1
     assert i2.update_term == 5
-    assert i2.latest == None
+    assert i2.latest is None
     assert i2.file_enc == 'cp949'
-    assert i2.lines_on_start == None
+    assert i2.lines_on_start is None
     assert i2.max_between_data == 1000000
     assert i2.format is not None
     assert i2.parser is None
-

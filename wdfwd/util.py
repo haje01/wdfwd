@@ -3,6 +3,7 @@ import logging
 import tempfile
 import time
 import re
+import stat
 from collections import namedtuple
 from subprocess import check_call as _check_call, CalledProcessError
 import codecs
@@ -607,3 +608,15 @@ def make_file_tail_info(tailc, filec, pos_dir, scfg, lines_on_start,
         order_ptrn=order_ptrn,
         reverse_order=reverse_order)
     return tinfo
+
+
+def is_file(path):
+    ldebug("is_file: {}".format(path))
+    try:
+        st = os.stat(path)
+    except OSError as e:
+        lwarning("os.stat error: {}".format(e))
+        return False
+    mode = st.st_mode
+    ldebug("st.st_mode: {}".format(mode))
+    return stat.S_ISREG(mode)

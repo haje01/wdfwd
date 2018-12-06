@@ -52,13 +52,31 @@ def teardown_module(mod):
             cap_call('wdfwd_svc.exe remove')
 
 
-def test_basic():
+def test_service_basic():
     # check cfg
     cfg_path = os.path.join(BASE_DIR, 'tests', 'cfg_service.yml')
     os.environ['WDFWD_CFG'] = cfg_path
     cfg = get_config()
     appc = cfg['app']
     assert appc['service']['name'] == 'wdfwd_test'
+
+    # test service isntall
+    with ChangeDir('wdfwd', 'test_dist'):
+        cap_call('wdfwd_svc.exe install')
+
+        # test start
+        cap_call('wdfwd_svc.exe start')
+        svc = get_service()
+        assert svc is not None
+        assert svc.Status == 'OK'
+
+
+def test_service_config():
+    # using directory config file
+    del os.environ['WDFWD_CFG']
+    cfg_path = os.path.join(BASE_DIR, 'tests', 'cfg_service.yml')
+    dcfg_path = os.path.join(BASE_DIR, 'test_dist', 'config.yml')
+    shutil.copyfile(cfg_path, dcfg_path)
 
     # test service isntall
     with ChangeDir('wdfwd', 'test_dist'):

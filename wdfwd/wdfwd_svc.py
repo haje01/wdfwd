@@ -1,4 +1,3 @@
-import sys
 import traceback
 
 import win32service  # NOQA
