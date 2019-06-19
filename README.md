@@ -40,6 +40,7 @@ git으로 소스를 clone 하고, 해당 디렉토리로 들어간 후 `build.ba
 
 어플리케이션 관련 설정이다.
 
+```yaml
     app:
         debug: false
         service:
@@ -49,6 +50,7 @@ git으로 소스를 clone 하고, 해당 디렉토리로 들어간 후 `build.ba
             # NOTE: Cron style schedule: m h dom mon dow
             schedule: "0 4 * * *"
             force_first_run: true
+```
 
 `service` > `name` - 서비스로 등록될 이름
 
