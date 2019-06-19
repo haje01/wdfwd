@@ -62,6 +62,7 @@ git으로 소스를 clone 하고, 해당 디렉토리로 들어간 후 `build.ba
 
 wdfwd 자체 로그 관련 설정이다.
 
+```yaml
     log:
         version: 1
         formatters:
@@ -81,6 +82,7 @@ wdfwd 자체 로그 관련 설정이다.
             level: DEBUG
             handlers: [file]
         to_url: # Log Stream Endpoint ex) [FLUENTD_SERVER_IP, FLUENTD_SERVER_PORT]
+```
 
 `handlers` > `file` > `filename` - wdfwd 자체 로그의 위치이다. 준비 단계에서 만들어둔 작업 폴더 아래 로그파일명 (예: `_wdfwd_log.txt` )까지의 풀 경로를 기입한다.
 
@@ -95,6 +97,7 @@ wdfwd 자체 로그 관련 설정이다.
 
 설정 파일은 `app`과 `log` 섹션은 거의 비슷하나, `tailing` 섹션이 추가되었다. 아래는 간단한 파일 테일링의 예이다.
 
+```yaml
     tailing:
         file_encoding: cp949
         pos_dir: D:\wdfwd-temp\
@@ -110,6 +113,7 @@ wdfwd 자체 로그 관련 설정이다.
                 tag: billing.fatal
         to:
             fluent: # [FLUENTD_SERVER_IP, FLUENTD_SERVER_PORT]
+```
 
 ### tailing
 
@@ -136,6 +140,7 @@ wdfwd 자체 로그 관련 설정이다.
 
 테일링의 대상이 DB에 있는 테이블인 경우 아래와 같이 `db` 섹션을 정의해 준다.
 
+```yaml
     tailing:
         db:
             connect:
@@ -151,6 +156,7 @@ wdfwd 자체 로그 관련 설정이다.
             datefmt: "%Y-%m-%d %H:%M:%S.%f"
             millisec_ndigit: 3
             sys_schema: false
+```
 
 * `encoding` - DB의 캐릭터 인코딩. 이 인코딩에서 UTF8로 변환된다.
 * `datefmt` - DB의 일시(date time) 포맷
@@ -165,11 +171,13 @@ wdfwd 자체 로그 관련 설정이다.
 
 테일링의 대상이 파일인 경우.
 
+```yaml
     from:
         - file:
             dir: # LOG_DIR
             pattern: mylog-*.txt
             tag: myapp.mylog1
+```
 
 * `dir` - 로그 파일이 남는 디렉토리 경로
 * `pattern` - 파일 이름의 패턴. [Unix 스타일의 경로명 패턴](https://docs.python.org/2/library/glob.html)을 받아 들인다.(`[`을 escape하기 위해서는 `[[]`을 사용하는 것에 주의)
@@ -201,12 +209,14 @@ Unix 계열에서는 전통적으로 아래와 같은 식으로 로그 로테이
 
 이 경우는 다음과 같이 설정한다.
 
+```yaml
     - file:
         dir: # LOG_DIR
         pattern: mylog.txt.*
         latest: mylog.txt
         reverse_order: true
         tag: myapp.mylog2
+```
 
 * `latest` - 바뀌지 않는 최신 파일을 명시적으로 지정한다.
 * `reverse_order` - `true`로 설정하면 문자열 기준으로 오름차순 소팅으로 바꾼다.
@@ -217,11 +227,13 @@ Unix 계열에서는 전통적으로 아래와 같은 식으로 로그 로테이
 
 테일링의 대상이 DB 테이블인 경우.
 
+```yaml
     - table:
         name: Log1
         col_names: ['dtime', 'message']
         key_idx: 0
         tag: wdfwd.dbtail1
+```
 
 * `name` - 대상 테이블 이름
 * `col_names` - 테이블의 컬럼 이름들
@@ -230,12 +242,14 @@ Unix 계열에서는 전통적으로 아래와 같은 식으로 로그 로테이
 
 MS SQLServer에서 SP(Stored Procedure)를 써야만 한다면, 아래와 같이 설정할 수 있다.
 
+```yaml
     - table:
         name: Log2
         start_key_sp: uspGetStartDatetime
         latest_rows_sp: uspGetLatestRows
         key_idx: 0
         tag: wdfwd.dbtail2
+```
 
 * `name` - 대상 테이블 이름
 * `start_key_sp` - 테일링을 시작할 키를 요청하는 SP. `int`형 인자를 받는데, 그 값은 lines_on_start가 건네진다.
@@ -251,19 +265,23 @@ MS SQLServer에서 SP(Stored Procedure)를 써야만 한다면, 아래와 같이
 
 Fluentd 서버로 보낸다. `[IP주소, 포트]` 형식을 따른다.
 
+```yaml
     to:
         fluent: [FLUENTD_SERVER_IP, FLUENTD_SERVER_PORT]
+```
 
 ##### kinesis
 
 Kinesis 스트림으로 보낸다. 다음과 같은 형식을 따른다.
 
+```yaml
     to:
         kinesis:
             access_key: # AWS Access Key Id
             secret_key: # AWS Secret Access Key
             stream_name: # AWS Kinesis Stream Name
             region: # AWS Region ex) ap-northeast-2
+```
 
 *Kinesis 스트림으로 보낼 때는 파이썬의 [aws_kinesis_agg](https://pypi.python.org/pypi/aws_kinesis_agg/1.0.0)모듈을 사용해서 Aggregation된 형태로 전송된다. 따라서 Kinesis Comsumer 쪽에서 Deaggregation 작업이 필요하다.*
 
@@ -288,6 +306,7 @@ DB는 정규화된 로그가 남고 있겠지만, 파일에는 다양한 형태�
 #### 토큰
 토큰은 정규식의 기본 단위이다. 아래와 같이 '토큰명: 토큰 정규식`의 형태로 정의된다.
 
+```yaml
     tokens:
         date: '\d{4}-\d{2}-\d{2}'
         time: '\d{2}:\d{2}:\d{2}'
@@ -295,30 +314,36 @@ DB는 정규화된 로그가 남고 있겠지만, 파일에는 다양한 형태�
         src_file: '\w+\.\w+'
         src_line: '\d+'
         msg: '.*'
+```
 
 매칭된 토큰의 이름은 필드명으로 사용된다. 그리고 토큰은 아래와 같이 다른 토큰을 참조할 수 있다.
 
+```yaml
     tokens:
         date: '\d{4}-\d{2}-\d{2}'
         time: '\d{2}:\d{2}:\d{2}'
         dt_: %{date} %{time}
-
+```
 
 #### 그룹
 그룹은 하나 이상의 토큰이나 다른 그룹을 참조해서 구성한다. 토큰과 다른 점은 *그룹명이 필드로 저장되지 않는다*는 점이다. 대신 그룹을 구성하는 각 토큰명이 필드로 저장된다.
 
+```yaml
     groups:
         datetime: '%{date} %{time}'
         src_info: '%{src_file}:%{src_line}'
+```
 
 위의 예에서 `datetime` 또는 `src_info` 그룹이 매칭되면, 각각 `date`와 `time` 또는 `src_file`과 `src_line`의 두 필드로 값이 저장된다.
 
 #### 포맷
 앞에서 정의한 토큰과 그룹을 조합해서 최종적인 포맷을 만든다. 포맷은 하나 이상 정의할 수 있다. 실재 로그의 각 행을 파싱할 때, 앞의 포맷부터 시도하여 정규식 매칭에 성공하면 그것을 저장하게 된다. 따라서 **자주 나오는 로그 형태를 먼저 정의**하는 것이 파싱 속도를 올리기 위해 중요하다.
 
+```yaml
     formats:
         - '%{datetime} %{level} %{src_info} %{msg}'
         - '%{datetime} %{level} %{msg}'
+```
 
 파서 하나에 다양한 포맷을 등록하면, 글로벌(`tailing` 아래의) 파서 하나로 모든 파일을 파싱할 수 있으나, 파싱 속도가 느려질 수 있기에 적절하게 사용하자.
 
@@ -327,8 +352,10 @@ DB는 정규화된 로그가 남고 있겠지만, 파일에는 다양한 형태�
 로그 안에 JSON형태의 필드가 있고, 이것을 파싱해서 보내야 한다면 토큰 트랜스폼 함수를 사용한다.
 아래와 같이 토큰 정규식과 트랜스폼(변환) 함수의 쌍으로 정의한다.
 
+```yaml
     tokens:
         jsondata: ['{.*}', 'json(_)']
+```
 
 여기서 `_`는 토큰 정규식에 매칭된 결과를 가지고 있다. 이것을 json형식으로 파싱한다는 뜻이다.
 
@@ -338,11 +365,11 @@ DB는 정규화된 로그가 남고 있겠지만, 파일에는 다양한 형태�
 
 아래와 같은 파서 정의를 한다.
 
+```yaml
     tokens:
         date: '\d{4}-\d{2}-\d{2}'
         jsondata: ['{.*}', 'json(_)']
-
-
+```
 
 정상적으로 파싱되면 아래와 같은 결과 json이 만들어 진다.
 
@@ -354,20 +381,27 @@ DB는 정규화된 로그가 남고 있겠지만, 파일에는 다양한 형태�
 
 위의 예에서 'A'는 중첩된 dictionary 형의 값을 가지고 있다. 이것은 Elasticsearch의 검색에는 좋지 않다. 이것을 펼쳐주기 위해서 `ravel`을 사용한다.
 
+```yaml
     jsondata: ['{.*}', 'ravel(json(_))']
+```
 
 이렇게 하면 아래와 같이 펼쳐진 결과가 된다.
 
+```yaml
     {'date': '2016-03-19', 'A_B': 1, 'C': 2}
+```
 
 만약, 이 결과에서 키를 소문자화 하고 싶다면 `lower`를 사용한다.
 
+```yaml
     jsondata: ['{.*}', 'lower(ravel(json(_)))']
+```
 
 결과는 다음과 같다.
 
+```yaml
     {'date': '2016-03-19', 'a_b': 1, 'c': 2}
-
+```
 
 #### 토큰 명과 충돌 방지
 
@@ -381,11 +415,15 @@ json 파싱된 결과는 다른 토큰의 결과와 합쳐지는데, 이때 같�
 
 이를 방지하기 위해 `prefix`를 사용하자.
 
+```yaml
     jsondata: ['{.*}', 'prefix(lower(ravel(json(_))), 'data')']
+```
 
 다음과 같이 접두어가 붙어 충돌을 방지할 수 있다.
 
+```yaml
     {'date': '2016-03-19', 'data-date': '2001-01-01'}
+```
 
 ### 포맷 / 파서 테스트 하기
 
