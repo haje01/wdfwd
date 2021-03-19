@@ -3,7 +3,7 @@ wsgiref==0.1.2
 WMI==1.4.9
 pytest==2.9.2
 Flask==0.11.1
-Jinja2==2.8
+Jinja2==2.11.3
 Werkzeug==0.11.10
 croniter==0.3.12
 py2exe==0.6.9
