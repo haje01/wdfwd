@@ -1,4 +1,4 @@
-PyYAML==3.11
+PyYAML==5.4
 wsgiref==0.1.2
 WMI==1.4.9
 pytest==2.9.2
